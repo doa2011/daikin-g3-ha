@@ -9,6 +9,8 @@ jobs:
         with:
           python-version: '3.14.10'
       - run: pip install 'homeassistant==2026.10.1' -r requirements.txt
+      - run: sudo apt-get update && sudo apt-get install -y libturbojpeg0
+      - run: python scripts/install_ha_camera_deps.py
       - run: python scripts/package_ha.py dist
       - run: PYTHONPATH=dist python scripts/validate_ha.py
       - run: cd dist && zip -r ../daikin-g3-ha-test.zip custom_components -x '*/__pycache__/*'

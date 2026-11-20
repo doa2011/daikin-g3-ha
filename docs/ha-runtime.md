@@ -9,3 +9,6 @@
 
 ## 第二十一轮：HA ConfigEntry 构造兼容性
 2026-11-20：affbbed 的 Unit tests 44782559032 attempt 1 成功，67 项；HA integration 44782560898 attempt 1 失败，job 136448797186。两者无 artifacts，本轮汇报终态。Python 与 HA 依赖安装及打包准备已通过，首次进入实际 HA 验证脚本，ConfigEntry 构造缺少必需的 subentries_data 参数。补齐空子入口列表，不跳过验证，不修改生产集成逻辑。待新 CI。
+
+## 第二十二轮：摄像头运行库依赖
+2026-11-20：6cadddd 的 Unit tests 44792320181 attempt 1 成功，67 项；HA integration 44792320303 attempt 1 失败，job 136482914330。两者无 artifacts，本轮汇报终态。ConfigEntry 已通过构造，失败发生于 native_bridge 导入 camera -> stream -> numpy。核对 HA 2026.10.1 camera/stream manifest，依赖包含 PyTurboJPEG 1.8.3、av 19.0.0、numpy 2.3.2。独立测试脚本未执行 HA 的集成依赖加载，故在 CI 中读取已安装 HA manifest 并安装声明依赖，另安装 libturbojpeg0；不修改生产集成、不模拟 camera 模块、不跳过验证。待 CI，尚无实机验证。
