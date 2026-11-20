@@ -6,3 +6,6 @@
 
 ## 第二十轮：Runner 与 Python 构建兼容性
 2026-11-20：97e96b2 的 Unit tests 44773028933 attempt 1 成功，67 项测试；HA integration 44773029087 attempt 1 失败，job 136415375771，首个根因 Ubuntu 26.04 无 Python 3.14.2 x64 构建。两者无 artifacts，本轮汇报终态。核对 actions/python-versions 官方 versions-manifest.json，稳定版 3.14.10 提供 Ubuntu 24.04 和 26.04 x64 构建，固定 ubuntu-24.04 与 3.14.10，满足 HA 最低版本要求。保留所有验证及打包步骤，未执行真实 HA 测试。
+
+## 第二十一轮：HA ConfigEntry 构造兼容性
+2026-11-20：affbbed 的 Unit tests 44782559032 attempt 1 成功，67 项；HA integration 44782560898 attempt 1 失败，job 136448797186。两者无 artifacts，本轮汇报终态。Python 与 HA 依赖安装及打包准备已通过，首次进入实际 HA 验证脚本，ConfigEntry 构造缺少必需的 subentries_data 参数。补齐空子入口列表，不跳过验证，不修改生产集成逻辑。待新 CI。

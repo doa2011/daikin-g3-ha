@@ -11,7 +11,7 @@ from custom_components.daikin_g3.services import SERVICES
 
 async def main():
     hass=HomeAssistant(str(Path("dist").resolve()))
-    entry=ConfigEntry(version=1,minor_version=1,domain="daikin_g3",title="G3 test",data={"url":"http://127.0.0.1"},source="user",options={},unique_id=None,discovery_keys={})
+    entry=ConfigEntry(version=1,minor_version=1,domain="daikin_g3",title="G3 test",data={"url":"http://127.0.0.1"},source="user",options={},unique_id=None,discovery_keys={},subentries_data=[])
     adapter=AsyncMock()
     try:
         with patch("custom_components.daikin_g3.CommunityAdapter",return_value=adapter):
