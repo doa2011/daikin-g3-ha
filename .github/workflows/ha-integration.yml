@@ -1,0 +1,18 @@
+name: HA integration validation
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install 'homeassistant==2026.10.1' -r requirements.txt
+      - run: python scripts/package_ha.py dist
+      - run: PYTHONPATH=dist python scripts/validate_ha.py
+      - run: cd dist && zip -r ../daikin-g3-ha-test.zip custom_components -x '*/__pycache__/*'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daikin-g3-ha-test
+          path: daikin-g3-ha-test.zip
