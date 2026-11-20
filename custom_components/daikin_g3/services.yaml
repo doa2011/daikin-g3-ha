@@ -1,0 +1,210 @@
+{
+  "show_message": {
+    "fields": {
+      "entry_id": {
+        "required": true,
+        "selector": {
+          "config_entry": {
+            "integration": "daikin_g3"
+          }
+        }
+      },
+      "text": {
+        "required": true,
+        "selector": {
+          "text": {
+            "multiline": true
+          }
+        }
+      },
+      "title": {
+        "required": false,
+        "selector": {
+          "text": {}
+        }
+      },
+      "notice_id": {
+        "required": false,
+        "selector": {
+          "number": {
+            "min": 1,
+            "max": 4294967295,
+            "mode": "box"
+          }
+        }
+      },
+      "seconds": {
+        "required": false,
+        "selector": {
+          "number": {
+            "min": 1,
+            "max": 3600,
+            "mode": "box",
+            "unit_of_measurement": "s"
+          }
+        }
+      },
+      "brightness": {
+        "required": false,
+        "selector": {
+          "number": {
+            "min": 1,
+            "max": 100,
+            "mode": "slider",
+            "unit_of_measurement": "%"
+          }
+        }
+      },
+      "wake": {
+        "required": false,
+        "selector": {
+          "boolean": {}
+        }
+      }
+    }
+  },
+  "show_camera": {
+    "fields": {
+      "entry_id": {
+        "required": true,
+        "selector": {
+          "config_entry": {
+            "integration": "daikin_g3"
+          }
+        }
+      },
+      "camera": {
+        "required": true,
+        "selector": {
+          "entity": {
+            "filter": [
+              {
+                "domain": "camera"
+              }
+            ]
+          }
+        }
+      },
+      "title": {
+        "required": false,
+        "selector": {
+          "text": {}
+        }
+      },
+      "notice_id": {
+        "required": false,
+        "selector": {
+          "number": {
+            "min": 1,
+            "max": 4294967295,
+            "mode": "box"
+          }
+        }
+      },
+      "seconds": {
+        "required": false,
+        "selector": {
+          "number": {
+            "min": 1,
+            "max": 3600,
+            "mode": "box",
+            "unit_of_measurement": "s"
+          }
+        }
+      },
+      "brightness": {
+        "required": false,
+        "selector": {
+          "number": {
+            "min": 1,
+            "max": 100,
+            "mode": "slider",
+            "unit_of_measurement": "%"
+          }
+        }
+      },
+      "wake": {
+        "required": false,
+        "selector": {
+          "boolean": {}
+        }
+      }
+    }
+  },
+  "show_dashboard": {
+    "fields": {
+      "entry_id": {
+        "required": true,
+        "selector": {
+          "config_entry": {
+            "integration": "daikin_g3"
+          }
+        }
+      },
+      "entities": {
+        "required": true,
+        "selector": {
+          "entity": {
+            "multiple": true
+          }
+        }
+      },
+      "title": {
+        "required": false,
+        "selector": {
+          "text": {}
+        }
+      },
+      "seconds": {
+        "required": false,
+        "selector": {
+          "number": {
+            "min": 1,
+            "max": 3600,
+            "mode": "box",
+            "unit_of_measurement": "s"
+          }
+        }
+      },
+      "brightness": {
+        "required": false,
+        "selector": {
+          "number": {
+            "min": 1,
+            "max": 100,
+            "mode": "slider",
+            "unit_of_measurement": "%"
+          }
+        }
+      },
+      "wake": {
+        "required": false,
+        "selector": {
+          "boolean": {}
+        }
+      }
+    }
+  },
+  "dismiss": {
+    "fields": {
+      "entry_id": {
+        "required": true,
+        "selector": {
+          "config_entry": {
+            "integration": "daikin_g3"
+          }
+        }
+      },
+      "notice_id": {
+        "required": true,
+        "selector": {
+          "number": {
+            "min": 1,
+            "max": 4294967295,
+            "mode": "box"
+          }
+        }
+      }
+    }
+  }
+}

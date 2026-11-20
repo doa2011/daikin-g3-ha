@@ -16,5 +16,119 @@
     "abort": {
       "already_configured": "Already configured"
     }
+  },
+  "services": {
+    "show_message": {
+      "name": "Show message",
+      "description": "Show message",
+      "fields": {
+        "entry_id": {
+          "name": "G3 configuration",
+          "description": "G3 configuration"
+        },
+        "text": {
+          "name": "Message",
+          "description": "Message"
+        },
+        "title": {
+          "name": "Title",
+          "description": "Title"
+        },
+        "notice_id": {
+          "name": "Notice ID",
+          "description": "Notice ID"
+        },
+        "seconds": {
+          "name": "Duration",
+          "description": "Duration"
+        },
+        "brightness": {
+          "name": "Brightness",
+          "description": "Brightness"
+        },
+        "wake": {
+          "name": "Wake screen",
+          "description": "Wake screen"
+        }
+      }
+    },
+    "show_camera": {
+      "name": "Show camera",
+      "description": "Show camera",
+      "fields": {
+        "entry_id": {
+          "name": "G3 configuration",
+          "description": "G3 configuration"
+        },
+        "camera": {
+          "name": "Camera",
+          "description": "Camera"
+        },
+        "title": {
+          "name": "Title",
+          "description": "Title"
+        },
+        "notice_id": {
+          "name": "Notice ID",
+          "description": "Notice ID"
+        },
+        "seconds": {
+          "name": "Duration",
+          "description": "Duration"
+        },
+        "brightness": {
+          "name": "Brightness",
+          "description": "Brightness"
+        },
+        "wake": {
+          "name": "Wake screen",
+          "description": "Wake screen"
+        }
+      }
+    },
+    "show_dashboard": {
+      "name": "Show dashboard",
+      "description": "Show dashboard",
+      "fields": {
+        "entry_id": {
+          "name": "G3 configuration",
+          "description": "G3 configuration"
+        },
+        "entities": {
+          "name": "Entities",
+          "description": "Entities"
+        },
+        "title": {
+          "name": "Title",
+          "description": "Title"
+        },
+        "seconds": {
+          "name": "Duration",
+          "description": "Duration"
+        },
+        "brightness": {
+          "name": "Brightness",
+          "description": "Brightness"
+        },
+        "wake": {
+          "name": "Wake screen",
+          "description": "Wake screen"
+        }
+      }
+    },
+    "dismiss": {
+      "name": "Dismiss notice",
+      "description": "Dismiss notice",
+      "fields": {
+        "entry_id": {
+          "name": "G3 configuration",
+          "description": "G3 configuration"
+        },
+        "notice_id": {
+          "name": "Notice ID",
+          "description": "Notice ID"
+        }
+      }
+    }
   }
 }
