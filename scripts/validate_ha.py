@@ -28,7 +28,19 @@ async def main():
             with patch.object(hass,"config_entries",SimpleNamespace(async_get_entry=lambda ident: entry if ident==entry.entry_id else None)):
                 await hass.services.async_call("daikin_g3","show_message",{"entry_id":entry.entry_id,"text":"test"},blocking=True)
             dispatch.assert_awaited_once()
+        # A second G3 must retain shared services after the first unloads.
+        second=ConfigEntry(version=1,minor_version=1,domain="daikin_g3",title="G3 second",data={"url":"http://127.0.0.2"},source="user",options={},unique_id=None,discovery_keys={},subentries_data=[])
+        with patch("custom_components.daikin_g3.CommunityAdapter",return_value=AsyncMock()):
+            assert await async_setup_entry(hass,second)
+        assert len(hass.data["daikin_g3"]) == 2
         assert await async_unload_entry(hass,entry)
+        assert all(hass.services.has_service("daikin_g3",n) for n in SERVICES)
+        with patch("custom_components.daikin_g3.services.dispatch",new_callable=AsyncMock) as dispatch:
+            from types import SimpleNamespace
+            with patch.object(hass,"config_entries",SimpleNamespace(async_get_entry=lambda ident: second if ident==second.entry_id else None)):
+                await hass.services.async_call("daikin_g3","show_message",{"entry_id":second.entry_id,"text":"second device"},blocking=True)
+            dispatch.assert_awaited_once()
+        assert await async_unload_entry(hass,second)
         assert not any(hass.services.has_service("daikin_g3",n) for n in SERVICES)
     finally:
         await hass.async_stop(force=True)

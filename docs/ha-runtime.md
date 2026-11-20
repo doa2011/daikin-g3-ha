@@ -15,3 +15,6 @@
 
 ## 第二十三轮：Ubuntu JPEG 系统库包名
 2026-11-20：34f1853 的 Unit tests 44801560502 attempt 1 成功（67项，0.565秒）；HA integration 44801561084 attempt 1 失败，job 136514730240，均无 artifacts。本轮汇报终态。首个根因 apt 无法定位 libturbojpeg0，Ubuntu Noble 使用 libturbojpeg 包名；改为该包并显式检查动态链接库存在。保留真实 HA 验证与打包流程，待 CI。
+
+## 第二十四轮：首次 HA 集成构建成功及双设备生命周期回归
+2026-11-20：95a57db 的 Unit tests run 44811612359 attempt 1 成功，67/67；HA integration run 44811611461 attempt 1 成功，job 136549329903，artifact 14667695557 (daikin-g3-ha-test，16454 bytes)。两项均已核实，本轮首次通知上述结果。实际 HA 2026.10.1 服务注册、选择器、调用和卸载测试通过，仍使用模拟 G3 传输，不代表实机成功。新增第二个 ConfigEntry 组合验证：两个设备同时加载、卸载第一个后共享服务保持注册、第二个仍可调用、最后一个卸载后服务移除。继续通过真实 HA CI 检查，不修改设备固件。
