@@ -12,3 +12,6 @@
 
 ## 第二十二轮：摄像头运行库依赖
 2026-11-20：6cadddd 的 Unit tests 44792320181 attempt 1 成功，67 项；HA integration 44792320303 attempt 1 失败，job 136482914330。两者无 artifacts，本轮汇报终态。ConfigEntry 已通过构造，失败发生于 native_bridge 导入 camera -> stream -> numpy。核对 HA 2026.10.1 camera/stream manifest，依赖包含 PyTurboJPEG 1.8.3、av 19.0.0、numpy 2.3.2。独立测试脚本未执行 HA 的集成依赖加载，故在 CI 中读取已安装 HA manifest 并安装声明依赖，另安装 libturbojpeg0；不修改生产集成、不模拟 camera 模块、不跳过验证。待 CI，尚无实机验证。
+
+## 第二十三轮：Ubuntu JPEG 系统库包名
+2026-11-20：34f1853 的 Unit tests 44801560502 attempt 1 成功（67项，0.565秒）；HA integration 44801561084 attempt 1 失败，job 136514730240，均无 artifacts。本轮汇报终态。首个根因 apt 无法定位 libturbojpeg0，Ubuntu Noble 使用 libturbojpeg 包名；改为该包并显式检查动态链接库存在。保留真实 HA 验证与打包流程，待 CI。
