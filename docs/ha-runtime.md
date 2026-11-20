@@ -3,3 +3,6 @@
 
 ## 第十九轮：运行环境修复
 2026-11-20：57d8279 的 Unit tests run 44763382458 attempt 1 成功；HA integration run 44763382529 attempt 1 失败，job 136381497936。两者无 artifacts。本轮汇报上述终态。首个根因为 HA 2026.10.1 要求 Python >=3.14.2，而工作流使用 3.13，pip 安装阶段退出。仅将 HA 工作流固定为 3.14.2，保留既有 HA 版本和所有测试，不降低验证要求。待新 CI，尚无实机验证。
+
+## 第二十轮：Runner 与 Python 构建兼容性
+2026-11-20：97e96b2 的 Unit tests 44773028933 attempt 1 成功，67 项测试；HA integration 44773029087 attempt 1 失败，job 136415375771，首个根因 Ubuntu 26.04 无 Python 3.14.2 x64 构建。两者无 artifacts，本轮汇报终态。核对 actions/python-versions 官方 versions-manifest.json，稳定版 3.14.10 提供 Ubuntu 24.04 和 26.04 x64 构建，固定 ubuntu-24.04 与 3.14.10，满足 HA 最低版本要求。保留所有验证及打包步骤，未执行真实 HA 测试。
