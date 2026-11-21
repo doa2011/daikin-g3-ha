@@ -4,7 +4,7 @@ import urllib.parse
 import urllib.error
 import json
 from .auth import auth_headers
-from .protocol import encode_command, decode_object, decode_result, ProtocolError
+from .protocol import encode_command, decode_object, decode_result, ProtocolError, CommandError
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
