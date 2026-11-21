@@ -42,8 +42,16 @@ class CommunityAdapter:
 
     async def capabilities(self):
         data = await self._get("/api/v1/capabilities")
-        actions = data.get("actions")
-        if not isinstance(actions, list) or not all(isinstance(x,str) for x in actions):
+        # GET /api/v1/capabilities is a plain map on v1.0.0; the
+        # capabilities.get command instead returns an envelope with data.actions.
+        # Accept both explicitly, without guessing from unrelated nested keys.
+        if "actions" in data:
+            actions = data["actions"]
+        elif isinstance(data.get("data"), dict):
+            actions = data["data"].get("actions")
+        else:
+            actions = None
+        if not isinstance(actions, list) or not all(isinstance(x, str) and x for x in actions):
             raise ProtocolError("unsupported actions format")
         return frozenset(actions)
 
