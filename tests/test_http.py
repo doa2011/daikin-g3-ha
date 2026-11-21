@@ -62,6 +62,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         request = msgpack.unpackb(self.rfile.read(int(self.headers["Content-Length"])), raw=False)
         self.server.requests.append(request)
+        if request["action"] == "busy.http":
+            body = json.dumps({"code":"busy","message":"overloaded"}).encode()
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         code = "busy" if request["action"] == "busy.test" else "accepted"
         self.reply({"request_id": request["request_id"], "code":code, "data":{}})
 
@@ -90,6 +98,14 @@ class TestHTTP(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(CommandError):
             await self.adapter.call("busy.test",{})
         self.assertEqual(len(self.server.requests),1)
+    async def test_post_json_busy_not_retried(self):
+        """A write command that gets HTTP 503 JSON busy must be sent once."""
+        with self.assertRaises(CommandError) as error:
+            await self.adapter.call("busy.http", {"value": 1})
+        self.assertEqual(error.exception.code, "busy")
+        self.assertEqual(len(self.server.requests), 1)
+        self.assertEqual(self.server.requests[0]["action"], "busy.http")
+
     async def test_json_busy_http_error_not_downgraded_or_retried(self):
         with self.assertRaises(CommandError) as error:
             await self.adapter._get("/api/v1/overloaded")
