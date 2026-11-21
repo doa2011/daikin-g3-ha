@@ -2,6 +2,7 @@ import unittest
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import msgpack
+import json
 from daikin_g3.community import CommunityAdapter
 from daikin_g3.protocol import ProtocolError, CommandError
 
@@ -23,6 +24,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if not self.authorized():
+            return
+        if self.path == "/api/v1/overloaded":
+            body = json.dumps({"code":"busy","message":"overloaded"}).encode()
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         if self.path == "/api/v1/capabilities":
             self.reply({"actions":["status.get","screen.page.set"]})
@@ -69,6 +78,12 @@ class TestHTTP(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(CommandError):
             await self.adapter.call("busy.test",{})
         self.assertEqual(len(self.server.requests),1)
+    async def test_json_busy_http_error_not_downgraded_or_retried(self):
+        with self.assertRaises(CommandError) as error:
+            await self.adapter._get("/api/v1/overloaded")
+        self.assertEqual(error.exception.code, "busy")
+        self.assertEqual(len(self.server.requests), 0)
+
     async def test_bad_password(self):
         from urllib.error import HTTPError
         with self.assertRaises(HTTPError) as error:
