@@ -22,8 +22,8 @@ async def validate_config_flow(hass):
     # A new entry must validate both endpoints and normalize the URL.
     adapter = AsyncMock()
     adapter.base_url = "http://127.0.0.1"
-    with patch.object(hass, "async_add_executor_job", new_callable=AsyncMock, return_value=adapter), \\
-         patch.object(G3ConfigFlow, "_async_abort_entries_match") as duplicate_check, \\
+    with patch.object(hass, "async_add_executor_job", new_callable=AsyncMock, return_value=adapter), \
+         patch.object(G3ConfigFlow, "_async_abort_entries_match") as duplicate_check, \
          patch.object(G3ConfigFlow, "async_create_entry", return_value={"type": "create_entry"}) as create:
         result = await new_flow().async_step_user({"url": "http://127.0.0.1/", "password": "test"})
         assert result["type"] == "create_entry"
@@ -33,14 +33,14 @@ async def validate_config_flow(hass):
         assert create.call_args.kwargs["data"]["url"] == adapter.base_url
 
     # Invalid device origin and network errors must remain recoverable forms.
-    with patch.object(hass, "async_add_executor_job", new_callable=AsyncMock, side_effect=ValueError("bad URL")), \\
+    with patch.object(hass, "async_add_executor_job", new_callable=AsyncMock, side_effect=ValueError("bad URL")), \
          patch.object(G3ConfigFlow, "async_show_form", side_effect=lambda **kw: kw):
         result = await new_flow().async_step_user({"url": "file:///tmp/g3"})
         assert result["errors"]["base"] == "invalid_url"
 
     failing_adapter = AsyncMock()
     failing_adapter.info.side_effect = ConnectionError("device offline")
-    with patch.object(hass, "async_add_executor_job", new_callable=AsyncMock, return_value=failing_adapter), \\
+    with patch.object(hass, "async_add_executor_job", new_callable=AsyncMock, return_value=failing_adapter), \
          patch.object(G3ConfigFlow, "async_show_form", side_effect=lambda **kw: kw):
         result = await new_flow().async_step_user({"url": "http://127.0.0.1"})
         assert result["errors"]["base"] == "cannot_connect"
