@@ -35,6 +35,12 @@ class Core:
         async with self.lock:
             if name not in self.enabled:
                 raise RuntimeError('module disabled')
+            # 设备重启、固件变更或能力撤销后，不沿用启用时的旧授权。
+            # 在发送任何命令之前重新检查模块所需能力，避免越权控制。
+            required = self.modules[name].requires
+            if not required <= await self.adapter.capabilities():
+                self.enabled.discard(name)
+                raise RuntimeError('module capabilities revoked')
             allowed = self.modules[name].allowed_actions
             if allowed is not None and action not in allowed:
                 raise RuntimeError('action not allowed for module')
