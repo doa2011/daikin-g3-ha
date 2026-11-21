@@ -16,7 +16,7 @@ def encode_command(action, params, request_id=None):
 def decode_object(body):
     try:
         value = msgpack.unpackb(body, raw=False)
-    except (ValueError, TypeError) as exc:
+    except (msgpack.exceptions.UnpackException, ValueError, TypeError, OverflowError) as exc:
         raise ProtocolError("invalid MessagePack") from exc
     if not isinstance(value, dict):
         raise ProtocolError("expected map")
