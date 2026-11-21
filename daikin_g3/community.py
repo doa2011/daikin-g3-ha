@@ -1,6 +1,8 @@
 import asyncio
 import urllib.request
 import urllib.parse
+import urllib.error
+import json
 from .auth import auth_headers
 from .protocol import encode_command, decode_object, decode_result, ProtocolError
 
@@ -23,7 +25,22 @@ class CommunityAdapter:
         if body is not None:
             headers["Content-Type"] = "application/msgpack"
         request = urllib.request.Request(self.base_url + path, data=body, headers=headers)
-        with self.opener.open(request, timeout=self.timeout) as response:
+        try:
+            response = self.opener.open(request, timeout=self.timeout)
+        except urllib.error.HTTPError as exc:
+            # Upstream v1.0.0 may return JSON busy while the normal API is
+            # MessagePack. This is an error signal, never a protocol downgrade.
+            if exc.headers.get_content_type() == "application/json":
+                payload = exc.read(4097)
+                if len(payload) <= 4096:
+                    try:
+                        error = json.loads(payload)
+                    except (ValueError, UnicodeDecodeError):
+                        error = None
+                    if isinstance(error, dict) and error.get("code") == "busy":
+                        raise CommandError("busy") from exc
+            raise
+        with response:
             if response.headers.get_content_type() != "application/msgpack":
                 raise ProtocolError("unexpected response encoding")
             data = response.read(1048577)
