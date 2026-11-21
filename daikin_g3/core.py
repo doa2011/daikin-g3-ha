@@ -10,6 +10,7 @@ class Adapter(Protocol):
 class Module:
     name: str
     requires: frozenset[str] = frozenset()
+    allowed_actions: frozenset[str] | None = None
 
 class Core:
     def __init__(self, adapter: Adapter):
@@ -18,6 +19,8 @@ class Core:
         self.enabled = set()
         self.lock = asyncio.Lock()
     def register(self, module: Module):
+        if module.allowed_actions is not None and not module.allowed_actions <= module.requires:
+            raise ValueError('allowed actions must be declared in required capabilities')
         if module.name in self.modules:
             raise ValueError('duplicate module')
         self.modules[module.name] = module
@@ -32,4 +35,7 @@ class Core:
         async with self.lock:
             if name not in self.enabled:
                 raise RuntimeError('module disabled')
+            allowed = self.modules[name].allowed_actions
+            if allowed is not None and action not in allowed:
+                raise RuntimeError('action not allowed for module')
             return await self.adapter.call(action, params)
