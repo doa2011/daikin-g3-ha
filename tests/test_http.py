@@ -25,6 +25,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.authorized():
             return
+        if self.path == "/api/v1/redirect":
+            self.send_response(302)
+            self.send_header("Location", "/api/v1/info")
+            self.end_headers()
+            return
         if self.path == "/api/v1/overloaded":
             body = json.dumps({"code":"busy","message":"overloaded"}).encode()
             self.send_response(503)
@@ -119,6 +124,14 @@ class TestHTTP(unittest.IsolatedAsyncioTestCase):
     async def test_unexpected_encoding_rejected(self):
         with self.assertRaisesRegex(ProtocolError, "unexpected response encoding"):
             await self.adapter._get("/api/v1/wrong-encoding")
+
+    async def test_redirect_is_not_followed(self):
+        """Do not follow redirects with device Basic credentials."""
+        from urllib.error import HTTPError
+        with self.assertRaises(HTTPError) as error:
+            await self.adapter._get("/api/v1/redirect")
+        self.assertEqual(error.exception.code, 302)
+        self.assertEqual(len(self.server.requests), 0)
 
     async def test_bad_password(self):
         from urllib.error import HTTPError
