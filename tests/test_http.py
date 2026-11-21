@@ -33,6 +33,18 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if self.path == "/api/v1/oversized":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/msgpack")
+            self.end_headers()
+            self.wfile.write(b"x" * 1048577)
+            return
+        if self.path == "/api/v1/wrong-encoding":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"online":true}')
+            return
         if self.path == "/api/v1/capabilities":
             self.reply({"actions":["status.get","screen.page.set"]})
         elif self.path == "/api/v1/info":
@@ -83,6 +95,14 @@ class TestHTTP(unittest.IsolatedAsyncioTestCase):
             await self.adapter._get("/api/v1/overloaded")
         self.assertEqual(error.exception.code, "busy")
         self.assertEqual(len(self.server.requests), 0)
+
+    async def test_oversized_response_rejected(self):
+        with self.assertRaisesRegex(ProtocolError, "response too large"):
+            await self.adapter._get("/api/v1/oversized")
+
+    async def test_unexpected_encoding_rejected(self):
+        with self.assertRaisesRegex(ProtocolError, "unexpected response encoding"):
+            await self.adapter._get("/api/v1/wrong-encoding")
 
     async def test_bad_password(self):
         from urllib.error import HTTPError
