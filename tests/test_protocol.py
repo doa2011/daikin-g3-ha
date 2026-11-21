@@ -1,6 +1,6 @@
 import unittest
 import msgpack
-from daikin_g3.protocol import encode_command, decode_result, ProtocolError, CommandError
+from daikin_g3.protocol import encode_command, decode_result, decode_object, ProtocolError, CommandError
 from daikin_g3.auth import auth_headers
 from daikin_g3.community import CommunityAdapter
 
@@ -45,3 +45,32 @@ class TestCapabilityEnvelope(unittest.IsolatedAsyncioTestCase):
         adapter._get = fake_get
         with self.assertRaises(ProtocolError):
             await adapter.capabilities()
+
+class TestMalformedMessagePack(unittest.TestCase):
+    """Regression cases for malformed v1.0.0 binary HTTP responses."""
+
+    def test_truncated_map(self):
+        with self.assertRaisesRegex(ProtocolError, "invalid MessagePack"):
+            decode_object(b"\\x81\\xa6broken")
+
+    def test_extra_trailing_object(self):
+        body = msgpack.packb({"code": "ok"}, use_bin_type=True) + msgpack.packb(42)
+        with self.assertRaisesRegex(ProtocolError, "invalid MessagePack"):
+            decode_object(body)
+
+    def test_reserved_invalid_byte(self):
+        with self.assertRaisesRegex(ProtocolError, "invalid MessagePack"):
+            decode_object(b"\\xc1")
+
+    def test_non_map_root(self):
+        with self.assertRaisesRegex(ProtocolError, "expected map"):
+            decode_object(msgpack.packb(["not", "a", "map"]))
+
+    def test_valid_binary_data_preserved(self):
+        payload = {"request_id": "a", "code": "ok", "data": {"jpeg": b"\\xff\\xd8"}}
+        self.assertEqual(decode_result(msgpack.packb(payload, use_bin_type=True), "a"), payload)
+
+    def test_wrong_request_id_not_masked(self):
+        payload = {"request_id": "a", "code": "ok", "data": {}}
+        with self.assertRaisesRegex(ProtocolError, "request ID mismatch"):
+            decode_result(msgpack.packb(payload, use_bin_type=True), "b")
