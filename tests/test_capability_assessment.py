@@ -40,3 +40,22 @@ class CapabilityAssessmentTests(unittest.TestCase):
         requirements = {"screen": ["screen.page.get"]}
         assess(self.result({"screen.page.get"}), requirements)
         self.assertEqual(requirements, {"screen": ["screen.page.get"]})
+
+    def test_string_actions_rejected(self):
+        for actions in ("screen.page.get", b"screen.page.get"):
+            with self.subTest(actions=actions), self.assertRaises(ValueError):
+                assess(self.result(set()), {"screen": actions})
+
+    def test_noniterable_actions_rejected(self):
+        for actions in (None, 123):
+            with self.subTest(actions=actions), self.assertRaises(ValueError):
+                assess(self.result(set()), {"screen": actions})
+
+    def test_unhashable_action_rejected(self):
+        with self.assertRaises(ValueError):
+            assess(self.result(set()), {"screen": [["screen.page.get"]]})
+
+    def test_generator_actions_supported(self):
+        actions = (action for action in ("screen.page.get",))
+        item, = assess(self.result({"screen.page.get"}), {"screen": actions})
+        self.assertEqual(item.support, Support.DECLARED)

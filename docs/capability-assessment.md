@@ -18,3 +18,5 @@ for item in checks:
 以上 `screen.page.get` 仅为示例，实际应以当前固件的 `GET /api/v1/capabilities` 为准。参考 [上游设备 API](https://github.com/phicomm-io/iotcloud-community-firmware/blob/main/docs/public/device-api.md)（v1.0.0 MessagePack，v0.9.27 JSON），上游源码为 GPL-3.0；本模块为独立实现，未复制上游固件源码。
 
 验证等级：本地/CI 单元测试为模拟，HA 集成 CI 为软件集成，实机认证与屏幕操作仍未验证。
+
+输入约束（2026-11-23）：`requirements` 的每个模块必须提供动作名称的可迭代集合；拒绝直接传入字符串或字节串、不可迭代对象、不可哈希动作元素和非空字符串以外的动作名称，统一抛出 `ValueError`。空集合继续表示 `unverified`；生成器可作为输入，结果不修改原有动作集合。新增测试仅为模拟验证，仍需 GitHub CI 和 G3 实机验证。

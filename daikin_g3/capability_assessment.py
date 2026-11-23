@@ -38,7 +38,12 @@ def assess(
     for module, actions in requirements.items():
         if not isinstance(module, str) or not module:
             raise ValueError("module name must be nonempty")
-        required = frozenset(actions)
+        if isinstance(actions, (str, bytes)):
+            raise ValueError("actions must be an iterable of action names, not a string")
+        try:
+            required = frozenset(actions)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("actions must be an iterable of hashable action names") from exc
         if not required or not all(isinstance(a, str) and a for a in required):
             if required:
                 raise ValueError("action names must be nonempty strings")
