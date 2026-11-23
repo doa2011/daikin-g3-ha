@@ -58,3 +58,33 @@ class TestPreflight(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(PermissionError):
             await probe(adapter)
         self.assertEqual(adapter.calls, [])
+
+    async def test_invalid_status_rejected_without_capability_request(self):
+        adapter = FakeAdapter()
+        async def invalid_status():
+            adapter.calls.append("status")
+            return ["not a map"]
+        adapter.status = invalid_status
+        with self.assertRaisesRegex(ValueError, "expected info and status maps"):
+            await probe(adapter)
+        self.assertEqual(adapter.calls, ["info", "status", "capabilities"])
+
+    async def test_invalid_capabilities_rejected_without_guessing(self):
+        adapter = FakeAdapter()
+        async def invalid_capabilities():
+            adapter.calls.append("capabilities")
+            return {"screen.page.get"}
+        adapter.capabilities = invalid_capabilities
+        with self.assertRaisesRegex(ValueError, "expected validated capability action set"):
+            await probe(adapter)
+        self.assertEqual(adapter.calls, ["info", "status", "capabilities"])
+
+    async def test_protocol_error_propagates_without_fallback(self):
+        adapter = FakeAdapter()
+        async def bad_encoding():
+            adapter.calls.append("status")
+            raise ValueError("unexpected response encoding")
+        adapter.status = bad_encoding
+        with self.assertRaisesRegex(ValueError, "unexpected response encoding"):
+            await probe(adapter)
+        self.assertEqual(adapter.calls, ["info", "status"])
