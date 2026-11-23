@@ -29,10 +29,12 @@ async def probe(adapter: ReadOnlyAdapter) -> PreflightResult:
     that screen or media features are supported.
     """
     info = await adapter.info()
-    status = await adapter.status()
-    actions = await adapter.capabilities()
-    if not isinstance(info, dict) or not isinstance(status, dict):
+    if not isinstance(info, dict):
         raise ValueError("expected info and status maps")
+    status = await adapter.status()
+    if not isinstance(status, dict):
+        raise ValueError("expected info and status maps")
+    actions = await adapter.capabilities()
     if not isinstance(actions, frozenset) or not all(
         isinstance(action, str) and action for action in actions
     ):
