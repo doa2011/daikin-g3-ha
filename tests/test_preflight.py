@@ -45,10 +45,12 @@ class TestPreflight(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_info_rejected(self):
         adapter = FakeAdapter()
         async def invalid():
+            adapter.calls.append("info")
             return ["not a map"]
         adapter.info = invalid
         with self.assertRaisesRegex(ValueError, "expected info and status maps"):
             await probe(adapter)
+        self.assertEqual(adapter.calls, ["info"])
 
     async def test_auth_error_propagates_without_fallback(self):
         adapter = FakeAdapter()
@@ -67,7 +69,7 @@ class TestPreflight(unittest.IsolatedAsyncioTestCase):
         adapter.status = invalid_status
         with self.assertRaisesRegex(ValueError, "expected info and status maps"):
             await probe(adapter)
-        self.assertEqual(adapter.calls, ["info", "status", "capabilities"])
+        self.assertEqual(adapter.calls, ["info", "status"])
 
     async def test_invalid_capabilities_rejected_without_guessing(self):
         adapter = FakeAdapter()
