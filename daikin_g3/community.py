@@ -74,7 +74,14 @@ class CommunityAdapter:
         return await self._read_query("/api/v1/status")
 
     async def capabilities(self):
-        data = await self._read_query("/api/v1/capabilities")
+        try:
+            data = await self._read_query("/api/v1/capabilities")
+        except urllib.error.HTTPError as exc:
+            # Only an absent GET route permits the documented read-only command.
+            # Never mask authentication, busy, or malformed responses.
+            if exc.code not in (404, 405):
+                raise
+            data = await self.call("capabilities.get", {})
         # GET /api/v1/capabilities is a plain map on v1.0.0; the
         # capabilities.get command instead returns an envelope with data.actions.
         # Accept both explicitly, without guessing from unrelated nested keys.

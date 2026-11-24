@@ -27,3 +27,6 @@
 
 ## 只读 busy 恢复（2026-11-24）
 776f834、d9bdda4、d75dd55 的 CI 45470222501、45470222485、45470225355、45470225161、45470246723、45470246737 attempt 1 均成功，已通知；最新 artifact 14956902295。仅对 info/status/capabilities 的明确 busy 最多尝试三次，间隔 250/500ms；认证、协议错误和写命令不重试，不降级 JSON。新增模拟回归，待 CI；实机根因未确认。
+
+## 能力查询兼容（2026-11-24）
+c18ef2c 的 45480879443、45480879363 attempt 1 均成功，129 项单测，artifact 14960784790，已通知。核对上游 GPL-3.0 LICENSE 与 common/service_product_mp.inc 的 actions 字段；不复制上游代码。仅 GET capabilities 返回 404/405 时使用文档定义的 MessagePack capabilities.get，只读且不自动重发 POST；401/403、503、协议异常不触发回退。新增模拟回归，待 CI，实机根因仍未确认。
