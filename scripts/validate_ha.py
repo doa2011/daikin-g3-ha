@@ -32,6 +32,11 @@ async def validate_config_flow(hass):
         duplicate_check.assert_called_once_with({"url": adapter.base_url})
         assert create.call_args.kwargs["data"]["url"] == adapter.base_url
 
+    # Bare IPv4 input is accepted by the real adapter, without network I/O.
+    from custom_components.daikin_g3.daikin_g3.community import CommunityAdapter
+    assert CommunityAdapter("192.168.1.100").base_url == "http://192.168.1.100"
+    assert CommunityAdapter(" 192.168.1.100:8080/ ").base_url == "http://192.168.1.100:8080"
+
     # Invalid device origin and network errors must remain recoverable forms.
     with patch.object(hass, "async_add_executor_job", new_callable=AsyncMock, side_effect=ValueError("bad URL")), \
          patch.object(G3ConfigFlow, "async_show_form", side_effect=lambda **kw: kw):
