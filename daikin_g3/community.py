@@ -57,14 +57,24 @@ class CommunityAdapter:
     async def _get(self, path):
         return decode_object(await asyncio.to_thread(self._request, path))
 
+    async def _read_query(self, path):
+        # Retry only explicit busy responses on known read-only endpoints.
+        for attempt in range(3):
+            try:
+                return await self._get(path)
+            except CommandError as exc:
+                if exc.code != "busy" or attempt == 2:
+                    raise
+                await asyncio.sleep(0.25 * (attempt + 1))
+
     async def info(self):
-        return await self._get("/api/v1/info")
+        return await self._read_query("/api/v1/info")
 
     async def status(self):
-        return await self._get("/api/v1/status")
+        return await self._read_query("/api/v1/status")
 
     async def capabilities(self):
-        data = await self._get("/api/v1/capabilities")
+        data = await self._read_query("/api/v1/capabilities")
         # GET /api/v1/capabilities is a plain map on v1.0.0; the
         # capabilities.get command instead returns an envelope with data.actions.
         # Accept both explicitly, without guessing from unrelated nested keys.
