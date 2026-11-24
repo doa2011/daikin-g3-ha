@@ -129,6 +129,46 @@
           "description": "Notice ID"
         }
       }
+    },
+    "start_album": {
+      "name": "Start photo album",
+      "description": "Rotate photos from a directory accessible to Home Assistant.",
+      "fields": {
+        "entry_id": {
+          "name": "G3 configuration",
+          "description": "G3 configuration"
+        },
+        "directory": {
+          "name": "Photo directory",
+          "description": "Directory accessible to Home Assistant"
+        },
+        "shuffle": {
+          "name": "Shuffle",
+          "description": "Shuffle photo order"
+        },
+        "seconds": {
+          "name": "Photo duration",
+          "description": "Seconds per photo"
+        },
+        "brightness": {
+          "name": "Brightness",
+          "description": "Screen brightness percentage"
+        },
+        "wake": {
+          "name": "Wake screen",
+          "description": "Wake the screen"
+        }
+      }
+    },
+    "stop_album": {
+      "name": "Stop photo album",
+      "description": "Stop rotation after the current photo completes.",
+      "fields": {
+        "entry_id": {
+          "name": "G3 configuration",
+          "description": "G3 configuration"
+        }
+      }
     }
   }
 }
