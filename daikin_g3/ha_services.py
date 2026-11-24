@@ -6,6 +6,13 @@ def new_id():
 
 async def dispatch(runtime, service, data):
     settings={k:data[k] for k in ("seconds","brightness","wake") if k in data}
+    queue=runtime.get("media_queue")
+    if service=="start_album":
+        return await queue.start_album(data["directory"],shuffle=data.get("shuffle",False),**settings)
+    if service=="stop_album":
+        return await queue.stop_album()
+    if service in ("show_message","show_camera","show_dashboard") and queue is not None:
+        await queue.foreground()
     if service=="show_message":
         return await runtime["notifications"].send(data.get("notice_id") or new_id(),title=data.get("title",""),text=data["text"],**settings)
     if service=="show_camera":
