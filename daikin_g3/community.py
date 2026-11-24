@@ -12,7 +12,13 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class CommunityAdapter:
     def __init__(self, base_url, password=None, timeout=10):
+        base_url = base_url.strip()
+        if "://" not in base_url:
+            base_url = "http://" + base_url
         url = urllib.parse.urlsplit(base_url)
+        if any(ch.isspace() for ch in base_url):
+            raise ValueError("expected device origin")
+        _ = url.port  # Validate explicit port before any network request.
         if url.scheme not in ("http","https") or not url.hostname or url.username or url.password or url.path not in ("","/") or url.query or url.fragment:
             raise ValueError("expected device origin")
         self.base_url = base_url.rstrip("/")
