@@ -46,6 +46,21 @@ async def validate_config_flow(hass):
         assert result["errors"]["base"] == "cannot_connect"
         failing_adapter.capabilities.assert_not_awaited()
 
+    # A failed capability request must identify the stage without exposing secrets.
+    import urllib.error
+    failing_adapter = AsyncMock()
+    failing_adapter.capabilities.side_effect = urllib.error.HTTPError(
+        "http://example.invalid/secret", 503, "secret", {}, None)
+    with patch.object(hass, "async_add_executor_job", new_callable=AsyncMock, return_value=failing_adapter), \
+         patch.object(G3ConfigFlow, "async_show_form", side_effect=lambda **kw: kw), \
+         patch("custom_components.daikin_g3.config_flow._LOGGER") as logger:
+        result = await new_flow().async_step_user({"url": "http://127.0.0.1", "password": "secret"})
+        assert result["errors"]["base"] == "cannot_connect"
+        logger.warning.assert_called_once_with(
+            "G3 setup failed at %s (%s, HTTP status=%s)",
+            "GET /api/v1/capabilities", "HTTPError", 503)
+
+
 async def main():
     hass=HomeAssistant(str(Path("dist").resolve()))
     await validate_config_flow(hass)
