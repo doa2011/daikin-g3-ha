@@ -1,5 +1,6 @@
 import logging
 import urllib.error
+from .daikin_g3.protocol import ProtocolError, CommandError
 import voluptuous as vol
 from homeassistant import config_entries
 from .daikin_g3.community import CommunityAdapter
@@ -23,7 +24,17 @@ class G3ConfigFlow(config_entries.ConfigFlow, domain="daikin_g3"):
                 errors["base"]="invalid_url" if stage == "device URL" else "cannot_connect"
                 _LOGGER.warning("G3 setup failed at %s (%s)", stage, type(exc).__name__)
             except Exception as exc:
-                errors["base"]="cannot_connect"
+                status = exc.code if isinstance(exc, urllib.error.HTTPError) else None
+                if status in (401, 403):
+                    errors["base"] = "invalid_auth"
+                elif status == 503 or (isinstance(exc, CommandError) and exc.code == "busy"):
+                    errors["base"] = "device_busy"
+                elif status in (404, 405):
+                    errors["base"] = "unsupported_api"
+                elif isinstance(exc, ProtocolError):
+                    errors["base"] = "invalid_protocol"
+                else:
+                    errors["base"] = "cannot_connect"
                 # Do not log URLs, credentials, response bodies or exception text.
                 status = exc.code if isinstance(exc, urllib.error.HTTPError) else None
                 _LOGGER.warning("G3 setup failed at %s (%s, HTTP status=%s)", stage, type(exc).__name__, status)

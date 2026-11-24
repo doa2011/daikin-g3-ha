@@ -125,7 +125,11 @@
     },
     "error": {
       "invalid_url": "设备地址无效",
-      "cannot_connect": "无法连接"
+      "cannot_connect": "无法连接",
+      "invalid_auth": "设备管理密码错误或访问被拒绝",
+      "device_busy": "设备繁忙，请稍后重试",
+      "unsupported_api": "设备 API 不兼容",
+      "invalid_protocol": "设备响应协议异常"
     },
     "abort": {
       "already_configured": "已经配置"

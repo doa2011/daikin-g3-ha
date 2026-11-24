@@ -60,10 +60,26 @@ async def validate_config_flow(hass):
          patch.object(G3ConfigFlow, "async_show_form", side_effect=lambda **kw: kw), \
          patch("custom_components.daikin_g3.config_flow._LOGGER") as logger:
         result = await new_flow().async_step_user({"url": "http://127.0.0.1", "password": "secret"})
-        assert result["errors"]["base"] == "cannot_connect"
+        assert result["errors"]["base"] == "device_busy"
         logger.warning.assert_called_once_with(
             "G3 setup failed at %s (%s, HTTP status=%s)",
             "GET /api/v1/capabilities", "HTTPError", 503)
+
+    from custom_components.daikin_g3.daikin_g3.protocol import ProtocolError, CommandError
+    for exc, expected in [
+        (urllib.error.HTTPError("http://example.invalid", 401, "", {}, None), "invalid_auth"),
+        (urllib.error.HTTPError("http://example.invalid", 403, "", {}, None), "invalid_auth"),
+        (urllib.error.HTTPError("http://example.invalid", 404, "", {}, None), "unsupported_api"),
+        (ProtocolError("invalid MessagePack"), "invalid_protocol"),
+        (CommandError("busy"), "device_busy"),
+    ]:
+        adapter = AsyncMock()
+        adapter.info.side_effect = exc
+        with patch.object(hass, "async_add_executor_job", new_callable=AsyncMock, return_value=adapter), \
+             patch.object(G3ConfigFlow, "async_show_form", side_effect=lambda **kw: kw):
+            result = await new_flow().async_step_user({"url": "http://127.0.0.1"})
+            assert result["errors"]["base"] == expected
+            adapter.capabilities.assert_not_awaited()
 
 
 async def main():
