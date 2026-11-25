@@ -22,7 +22,7 @@ class TestCapabilityModuleIntegration(unittest.IsolatedAsyncioTestCase):
         self.adapter.capabilities.return_value = frozenset({"status.get", "screen.page.set"})
         await self.core.enable("screen")
         await self.core.call("screen", "screen.page.set", {"page": 1})
-        self.adapter.capabilities.assert_awaited_once_with()
+        self.assertEqual(self.adapter.capabilities.await_count, 2)  # enable + pre-dispatch revalidation
         self.adapter.call.assert_awaited_once_with("screen.page.set", {"page": 1})
 
     async def test_unsupported_action_cannot_enable_module(self):
