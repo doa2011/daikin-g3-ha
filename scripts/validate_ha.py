@@ -22,12 +22,16 @@ async def validate_config_flow(hass):
     # A new entry must validate both endpoints and normalize the URL.
     adapter = AsyncMock()
     adapter.base_url = "http://127.0.0.1"
+    adapter.info.return_value = {"model":"daikin","version":"1.0.0-test","protocol":"tmcp","protocol_version":2,"wire_version":1,"default_wire_format":"msgpack","wire_formats":["msgpack"]}
+    adapter.status.return_value = {}
+    adapter.capabilities.return_value = frozenset({"status.get"})
     with patch.object(hass, "async_add_executor_job", new_callable=AsyncMock, return_value=adapter), \
          patch.object(G3ConfigFlow, "_async_abort_entries_match") as duplicate_check, \
          patch.object(G3ConfigFlow, "async_create_entry", return_value={"type": "create_entry"}) as create:
         result = await new_flow().async_step_user({"url": "http://127.0.0.1/", "password": "test"})
         assert result["type"] == "create_entry"
         adapter.info.assert_awaited_once()
+        adapter.status.assert_awaited_once()
         adapter.capabilities.assert_awaited_once()
         duplicate_check.assert_called_once_with({"url": adapter.base_url})
         assert create.call_args.kwargs["data"]["url"] == adapter.base_url

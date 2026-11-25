@@ -19,8 +19,8 @@ class G3ConfigFlow(config_entries.ConfigFlow, domain="daikin_g3"):
         if user_input is not None:
             stage = "device URL"
             try:
-                adapter = CommunityAdapter(
-                    user_input["url"], user_input.get("password") or None
+                adapter = await self.hass.async_add_executor_job(
+                    CommunityAdapter, user_input["url"], user_input.get("password") or None
                 )
                 stage = "authenticated G3 identity and read-only protocol probe"
                 result = await probe(adapter)

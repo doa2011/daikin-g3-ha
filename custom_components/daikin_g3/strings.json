@@ -11,7 +11,12 @@
     },
     "error": {
       "invalid_url": "Invalid device URL",
-      "cannot_connect": "Cannot connect"
+      "cannot_connect": "Cannot connect",
+      "invalid_auth": "Invalid management password",
+      "unsupported_api": "Unsupported device API",
+      "device_busy": "Device busy, retry",
+      "invalid_protocol": "Invalid protocol response",
+      "unsupported_device": "Unsupported device or firmware"
     },
     "abort": {
       "already_configured": "Already configured"
