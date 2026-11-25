@@ -1,4 +1,4 @@
-"""Read-only identity and authentication preflight for community G3 firmware."""
+"""Read-only identity and authentication preflight for community G3."""
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -11,12 +11,13 @@ class ReadOnlyAdapter(Protocol):
 
 @dataclass(frozen=True)
 class PreflightResult:
+    # Keep the original four positional fields stable for existing consumers.
     protocol_reachable: bool
-    model: str
-    firmware_version: str
     actions: frozenset[str]
     info_keys: tuple[str, ...]
     status_keys: tuple[str, ...]
+    model: str = ""
+    firmware_version: str = ""
 
 
 def validate_g3_identity(info: dict) -> tuple[str, str]:
@@ -55,9 +56,9 @@ async def probe(adapter: ReadOnlyAdapter) -> PreflightResult:
         raise ValueError("invalid capability action set")
     return PreflightResult(
         protocol_reachable=True,
-        model=model,
-        firmware_version=version,
         actions=actions,
         info_keys=tuple(sorted(k for k in info if isinstance(k, str))),
         status_keys=tuple(sorted(k for k in status if isinstance(k, str))),
+        model=model,
+        firmware_version=version,
     )
