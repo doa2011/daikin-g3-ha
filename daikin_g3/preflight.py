@@ -1,10 +1,6 @@
-"""Read-only preflight for community-firmware G3; never sends control commands.
-
-This module deliberately does not guess firmware baseline from model names.
-Only the actual MessagePack endpoints can establish protocol compatibility.
-"""
+"""Read-only identity and authentication preflight for community G3 firmware."""
 from dataclasses import dataclass
-from typing import Protocol, Any
+from typing import Protocol
 
 
 class ReadOnlyAdapter(Protocol):
@@ -16,31 +12,51 @@ class ReadOnlyAdapter(Protocol):
 @dataclass(frozen=True)
 class PreflightResult:
     protocol_reachable: bool
+    model: str
+    firmware_version: str
     actions: frozenset[str]
     info_keys: tuple[str, ...]
     status_keys: tuple[str, ...]
 
 
-async def probe(adapter: ReadOnlyAdapter) -> PreflightResult:
-    """Probe only GET info/status/capabilities; propagate auth/protocol errors.
-
-    Avoid persisting values from info/status: device identifiers and other
-    fields may be sensitive. An empty actions set is valid but not proof
-    that screen or media features are supported.
-    """
-    info = await adapter.info()
+def validate_g3_identity(info: dict) -> tuple[str, str]:
+    """Require the documented v1.0.0 Daikin community wire identity."""
     if not isinstance(info, dict):
-        raise ValueError("expected info and status maps")
+        raise ValueError("invalid info map")
+    model = info.get("model")
+    version = info.get("firmware_version") or info.get("version")
+    if model != "daikin":
+        raise ValueError("unsupported device model")
+    if not isinstance(version, str) or not version.strip():
+        raise ValueError("missing firmware version")
+    if info.get("protocol") != "tmcp":
+        raise ValueError("unsupported command protocol")
+    if info.get("protocol_version") != 2 or info.get("wire_version") != 1:
+        raise ValueError("unsupported wire protocol version")
+    if info.get("default_wire_format") != "msgpack":
+        raise ValueError("unsupported wire format")
+    formats = info.get("wire_formats")
+    if not isinstance(formats, list) or "msgpack" not in formats:
+        raise ValueError("MessagePack is not declared by device")
+    return model, version
+
+
+async def probe(adapter: ReadOnlyAdapter) -> PreflightResult:
+    """Authenticate and verify identity using read-only GET endpoints only."""
+    info = await adapter.info()
+    model, version = validate_g3_identity(info)
     status = await adapter.status()
     if not isinstance(status, dict):
-        raise ValueError("expected info and status maps")
+        raise ValueError("invalid status map")
     actions = await adapter.capabilities()
     if not isinstance(actions, frozenset) or not all(
         isinstance(action, str) and action for action in actions
     ):
-        raise ValueError("expected validated capability action set")
+        raise ValueError("invalid capability action set")
     return PreflightResult(
         protocol_reachable=True,
+        model=model,
+        firmware_version=version,
         actions=actions,
         info_keys=tuple(sorted(k for k in info if isinstance(k, str))),
         status_keys=tuple(sorted(k for k in status if isinstance(k, str))),
