@@ -5,6 +5,7 @@ import random
 import logging
 from urllib.error import HTTPError
 from .album import photos
+from .continuous_album import ContinuousAlbum, REQUIRED
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class AlbumPlayer:
         self._task, self._stop = None, False
         self._interrupt, self._lock = asyncio.Event(), asyncio.Lock()
         self._step = 1
+        self._continuous = None
 
     @property
     def running(self):
@@ -72,6 +74,9 @@ class AlbumPlayer:
         async with self._lock:
             if self.running:
                 raise RuntimeError("album already running")
+            if self._continuous is not None:
+                await self._continuous.close()
+                self._continuous = None
             paths = await asyncio.to_thread(self.scan, directory)
             if not paths:
                 raise ValueError("no photos in selected album")
@@ -88,6 +93,11 @@ class AlbumPlayer:
         if shuffled:
             random.shuffle(paths)
         try:
+            media = getattr(self.album, "media", None)
+            if media is not None and REQUIRED <= await media.adapter.capabilities():
+                self._continuous = ContinuousAlbum(media)
+                await self._run_continuous(paths, shuffled)
+                return
             while not self._stop:
                 self._interrupt.clear()
                 self._step = 1
@@ -128,6 +138,57 @@ class AlbumPlayer:
             self._task = None
             self.changed()
 
+    async def _run_continuous(self, paths, shuffled):
+        session = self._continuous
+        index = 0
+        self._interrupt.clear()
+        self._step = 1
+        await session.prepare(await asyncio.to_thread(read_photo, paths[index]))
+        if self._stop:
+            return
+        self._preview(await session.present(brightness=self.settings["brightness"], wake=self.settings["wake"]))
+        deadline = asyncio.get_running_loop().time() + self.settings["seconds"]
+        while not self._stop:
+            # Prepare and upload the next image during the current dwell.
+            # At a shuffle boundary retain the current image as index zero.
+            if shuffled != bool(self.settings["shuffle"]):
+                current = paths[index]
+                shuffled = bool(self.settings["shuffle"])
+                paths.sort()
+                if shuffled:
+                    random.shuffle(paths)
+                index = paths.index(current)
+            if shuffled and index == len(paths)-1 and len(paths)>1:
+                current = paths[index]
+                others = [p for p in paths if p != current]
+                random.shuffle(others)
+                paths[:] = [current] + others
+                index = 0
+            step = self._step if self._interrupt.is_set() else 1
+            self._interrupt.clear()
+            self._step = 1
+            candidate = (index + step) % len(paths)
+            await session.prepare(await asyncio.to_thread(read_photo, paths[candidate]))
+            if self._stop:
+                return
+            if not self._interrupt.is_set() and step == 1:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining > 0:
+                    try:
+                        await asyncio.wait_for(self._interrupt.wait(), remaining)
+                    except asyncio.TimeoutError:
+                        pass
+            if self._stop:
+                return
+            if self._interrupt.is_set() and self._step != step:
+                await session.discard()
+                continue
+            self._interrupt.clear()
+            self._step = 1
+            self._preview(await session.present(brightness=self.settings["brightness"], wake=self.settings["wake"]))
+            index = candidate
+            deadline = asyncio.get_running_loop().time() + self.settings["seconds"]
+
     def navigate(self, step):
         if not self.running or self._stop:
             raise RuntimeError("album is not running")
@@ -143,6 +204,9 @@ class AlbumPlayer:
                 self._interrupt.set()
                 self.changed()
                 await task
+            if self._continuous is not None:
+                await self._continuous.close()
+                self._continuous = None
             return {"state": "stopped"}
 
     async def foreground(self):
