@@ -82,9 +82,85 @@ async def validate_config_flow(hass):
             adapter.capabilities.assert_not_awaited()
 
 
+
+async def validate_http_config_flow(hass):
+    """Use actual TCP, HTTP, Basic auth and MessagePack; no adapter mock."""
+    import base64
+    import msgpack
+    from aiohttp import web
+    from custom_components.daikin_g3.config_flow import G3ConfigFlow
+
+    for scenario, password, expected in [
+        ("open", "", None), ("auth", "test", None),
+        ("auth", "wrong", "invalid_auth"), ("busy", "", None),
+        ("fallback", "", None), ("malformed", "", "invalid_protocol"),
+    ]:
+        calls = []
+        async def handle(request):
+            calls.append((request.method, request.path))
+            assert request.headers["Accept"] == "application/msgpack"
+            if scenario == "auth":
+                token = "Basic " + base64.b64encode(b"admin:test").decode()
+                if request.headers.get("Authorization") != token:
+                    return web.Response(status=401)
+            else:
+                assert "Authorization" not in request.headers
+            def packed(value):
+                return web.Response(body=msgpack.packb(value, use_bin_type=True),
+                                    content_type="application/msgpack")
+            if request.path == "/api/v1/info":
+                if scenario == "busy" and len(calls) == 1:
+                    return web.json_response({"code": "busy"}, status=503)
+                if scenario == "malformed":
+                    return web.Response(body=b"not msgpack", content_type="application/msgpack")
+                return packed({"model": "daikin"})
+            if request.path == "/api/v1/capabilities":
+                if scenario == "fallback":
+                    return web.Response(status=404)
+                return packed({"actions": ["status.get"]})
+            assert request.path == "/api/v1/command"
+            assert request.content_type == "application/msgpack"
+            command = msgpack.unpackb(await request.read(), raw=False)
+            assert command["action"] == "capabilities.get"
+            assert command["params"] == {}
+            return packed({"request_id": command["request_id"], "code": "ok",
+                           "data": {"actions": ["status.get"]}})
+
+        app = web.Application()
+        app.router.add_route("*", "/{tail:.*}", handle)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        try:
+            site = web.TCPSite(runner, "127.0.0.1", 0)
+            await site.start()
+            port = runner.addresses[0][1]
+            flow = G3ConfigFlow()
+            flow.hass = hass
+            with patch.object(G3ConfigFlow, "_async_abort_entries_match"), \
+                 patch.object(G3ConfigFlow, "async_create_entry", side_effect=lambda **kw: {"type": "create_entry", **kw}), \
+                 patch.object(G3ConfigFlow, "async_show_form", side_effect=lambda **kw: kw):
+                result = await flow.async_step_user({"url": f"127.0.0.1:{port}", "password": password})
+            if expected:
+                assert result["errors"]["base"] == expected, (scenario, result)
+                assert calls == [("GET", "/api/v1/info")]
+            else:
+                assert result["type"] == "create_entry", (scenario, result)
+                assert result["data"]["url"] == f"http://127.0.0.1:{port}"
+                wanted = [("GET", "/api/v1/info"), ("GET", "/api/v1/capabilities")]
+                if scenario == "busy":
+                    wanted.insert(0, ("GET", "/api/v1/info"))
+                if scenario == "fallback":
+                    wanted.append(("POST", "/api/v1/command"))
+                assert calls == wanted, (scenario, calls)
+            print(f"HTTP config flow: {scenario} ({expected or 'success'}) passed")
+        finally:
+            await runner.cleanup()
+
+
 async def main():
     hass=HomeAssistant(str(Path("dist").resolve()))
     await validate_config_flow(hass)
+    await validate_http_config_flow(hass)
     entry=ConfigEntry(version=1,minor_version=1,domain="daikin_g3",title="G3 test",data={"url":"http://127.0.0.1"},source="user",options={},unique_id=None,discovery_keys={},subentries_data=[])
     adapter=AsyncMock()
     try:
