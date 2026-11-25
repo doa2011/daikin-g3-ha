@@ -31,7 +31,7 @@ class Album:
         self.screen = Screen(media.adapter)
         self.lock = asyncio.Lock()
 
-    async def show(self, source, *, seconds=30, brightness=30, wake=False, fit="cover"):
+    async def show(self, source, *, seconds=30, brightness=30, wake=False, fit="cover", interrupt=None, on_display=None):
         if type(seconds) is not int or not 1 <= seconds <= 3600:
             raise ValueError("invalid album duration")
         if type(brightness) is not int or not 1 <= brightness <= 100:
@@ -41,6 +41,8 @@ class Album:
         async with self.lock:
             actions = await self.media.adapter.capabilities()
             required = {"screen.push.send", "screen.media.cancel"}
+            if interrupt is not None:
+                required.add("screen.push.dismiss")
             if not required <= actions:
                 raise ProtocolError("photo media push unsupported")
 
@@ -74,7 +76,11 @@ class Album:
                     },
                 )
 
+                if on_display is not None:
+                    on_display(image.data)
+
                 async def finished():
+                    dismissed = False
                     while True:
                         status = await self.media.status()
                         for item in status.get("messages", []):
@@ -85,7 +91,10 @@ class Album:
                                     "failed", "expired", "dropped", "evicted",
                                 ):
                                     return phase
-                        await asyncio.sleep(0.5)
+                        if interrupt is not None and interrupt.is_set() and not dismissed:
+                            await self.media.command("screen.push.dismiss", {"id": notice_id})
+                            dismissed = True
+                        await asyncio.sleep(0.25)
 
                 phase = await asyncio.wait_for(finished(), seconds + 30)
 
