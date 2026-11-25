@@ -51,13 +51,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'{"online":true}')
             return
-        if self.path == "/api/v1/capabilities":
-            self.reply({"actions":["status.get","screen.page.set"]})
-        elif self.path == "/api/v1/info":
+        if self.path == "/api/v1/info":
             self.reply({"model":"BRY88BBA15G"})
         elif self.path == "/api/v1/status":
             self.reply({"online":True})
         else:
+            # The G3 HTTP server does not expose a capabilities GET route.
             self.send_error(404)
 
     def do_POST(self):
@@ -68,6 +67,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         request = msgpack.unpackb(self.rfile.read(int(self.headers["Content-Length"])), raw=False)
         self.server.requests.append(request)
+        if request["action"] == "capabilities.get":
+            self.reply({
+                "request_id": request["request_id"],
+                "code": "ok",
+                "data": {"actions": ["status.get", "screen.media.get", "screen.media.begin", "screen.push.send", "screen.push.dismiss"]}
+            })
+            return
         if request["action"] == "busy.http":
             body = json.dumps({"code":"busy","message":"overloaded"}).encode()
             self.send_response(503)
@@ -101,7 +107,13 @@ class TestHTTP(unittest.IsolatedAsyncioTestCase):
         self.thread.join()
     async def test_queries(self):
         self.assertEqual((await self.adapter.info())["model"],"BRY88BBA15G")
-        self.assertEqual(await self.adapter.capabilities(),frozenset(("status.get","screen.page.set")))
+        self.assertEqual(
+            await self.adapter.capabilities(),
+            frozenset(("status.get","screen.media.get","screen.media.begin","screen.push.send","screen.push.dismiss")),
+        )
+        self.assertEqual(len(self.server.requests), 1)
+        self.assertEqual(self.server.requests[0]["action"], "capabilities.get")
+        self.assertEqual(self.server.requests[0]["params"], {})
         self.assertTrue((await self.adapter.status())["online"])
     async def test_command(self):
         result = await self.adapter.call("screen.page.set",{"direction":"next"})

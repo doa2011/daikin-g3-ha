@@ -72,16 +72,14 @@ class CommunityAdapter:
         return await self._get("/api/v1/status")
 
     async def capabilities(self):
-        data = await self._get("/api/v1/capabilities")
-        # GET /api/v1/capabilities is a plain map on v1.0.0; the
-        # capabilities.get command instead returns an envelope with data.actions.
-        # Accept both explicitly, without guessing from unrelated nested keys.
-        if "actions" in data:
-            actions = data["actions"]
-        elif isinstance(data.get("data"), dict):
-            actions = data["data"].get("actions")
-        else:
-            actions = None
+        # G3 firmware exposes capability discovery as the read-only
+        # capabilities.get command. Do not use GET /api/v1/capabilities:
+        # that route is not registered by the BRY88BBA15G HTTP server.
+        result = await self.call("capabilities.get", {})
+        data = result.get("data")
+        if not isinstance(data, dict):
+            raise ProtocolError("invalid capabilities response")
+        actions = data.get("actions")
         if not isinstance(actions, list) or not all(isinstance(x, str) and x for x in actions):
             raise ProtocolError("unsupported actions format")
         return frozenset(actions)
