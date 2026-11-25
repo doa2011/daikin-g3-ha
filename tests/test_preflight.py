@@ -30,24 +30,24 @@ class FakeAdapter:
 
 
 class TestG3Authentication(unittest.IsolatedAsyncioTestCase):
-    async def test_minimal_identity_requires_only_daikin_model(self):
+    async def test_accepts_any_device_model_and_missing_firmware(self):
+        self.assertEqual(validate_g3_identity({"model": "other"}), ("other", ""))
         self.assertEqual(validate_g3_identity({"model": "daikin"}), ("daikin", ""))
-        self.assertEqual(
-            validate_g3_identity({"model": "daikin", "version": "community-test"}),
-            ("daikin", "community-test"),
-        )
+        self.assertEqual(validate_g3_identity({"unrecognized": True}), ("", ""))
 
-    async def test_rejects_non_g3_model(self):
-        for info in ({}, {"model": "m1"}, {"model": None}):
-            with self.subTest(info=info), self.assertRaises(ValueError):
-                validate_g3_identity(info)
+    async def test_only_requires_a_decodable_info_map(self):
+        for info in ({}, {"model": "m1"}, {"model": None}, {"arbitrary": [1, 2, 3]}):
+            with self.subTest(info=info):
+                self.assertEqual(validate_g3_identity(info)[0] in ("", "m1"), True)
+        with self.assertRaises(ValueError):
+            validate_g3_identity(["not", "a", "map"])
 
-    async def test_info_messagepack_map_is_core_authentication(self):
-        adapter = FakeAdapter(info={"model": "daikin"})
+    async def test_info_messagepack_map_is_core_connectivity_check(self):
+        adapter = FakeAdapter(info={"model": "any-device", "arbitrary": "value"})
         result = await probe(adapter)
         self.assertEqual(adapter.calls, ["info", "capabilities"])
         self.assertTrue(result.protocol_reachable)
-        self.assertEqual(result.model, "daikin")
+        self.assertEqual(result.model, "any-device")
         self.assertEqual(result.firmware_version, "")
         self.assertEqual(result.actions, frozenset({"status.get"}))
 

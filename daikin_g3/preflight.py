@@ -1,4 +1,4 @@
-"""Minimal read-only preflight for a Daikin G3 community-firmware device."""
+"""Minimal read-only preflight for a reachable MessagePack device."""
 import logging
 from dataclasses import dataclass
 from typing import Protocol
@@ -23,25 +23,23 @@ class PreflightResult:
 
 
 def validate_g3_identity(info: dict) -> tuple[str, str]:
-    """Only require a MessagePack map identifying the expected G3 model."""
+    """Accept any MessagePack map; device model and firmware are informational."""
     if not isinstance(info, dict):
         raise ValueError("invalid info map")
     model = info.get("model")
-    if model != "daikin":
-        raise ValueError("unsupported device model")
-    version = info.get("firmware_version") or info.get("version") or ""
-    if not isinstance(version, str):
-        version = ""
-    return model, version
+    version = info.get("firmware_version") or info.get("version")
+    return (
+        model if isinstance(model, str) else "",
+        version if isinstance(version, str) else "",
+    )
 
 
 async def probe(adapter: ReadOnlyAdapter) -> PreflightResult:
-    """Authenticate by successfully reading info; capabilities are optional."""
+    """A successful MessagePack info response is sufficient for onboarding."""
     info = await adapter.info()
     model, version = validate_g3_identity(info)
 
-    # Capability discovery must not block adding a reachable G3. Firmware
-    # variants can expose different lists or temporarily report busy.
+    # Capability discovery is optional and must never block onboarding.
     try:
         actions = await adapter.capabilities()
         if not isinstance(actions, frozenset) or not all(
@@ -49,7 +47,7 @@ async def probe(adapter: ReadOnlyAdapter) -> PreflightResult:
         ):
             raise ValueError("invalid capability action set")
     except Exception as exc:
-        _LOGGER.debug("G3 capability discovery skipped (%s)", type(exc).__name__)
+        _LOGGER.debug("Device capability discovery skipped (%s)", type(exc).__name__)
         actions = frozenset()
 
     return PreflightResult(

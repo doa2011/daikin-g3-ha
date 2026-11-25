@@ -22,10 +22,10 @@ class G3ConfigFlow(config_entries.ConfigFlow, domain="daikin_g3"):
                 adapter = await self.hass.async_add_executor_job(
                     CommunityAdapter, user_input["url"], user_input.get("password") or None
                 )
-                stage = "authenticated G3 identity and read-only protocol probe"
+                stage = "read-only MessagePack info probe"
                 result = await probe(adapter)
             except ValueError as exc:
-                errors["base"] = "invalid_url" if stage == "device URL" else "unsupported_device"
+                errors["base"] = "invalid_url" if stage == "device URL" else "invalid_protocol"
                 _LOGGER.warning("G3 setup rejected at %s (%s)", stage, type(exc).__name__)
             except urllib.error.HTTPError as exc:
                 if exc.code in (401, 403):
@@ -36,9 +36,7 @@ class G3ConfigFlow(config_entries.ConfigFlow, domain="daikin_g3"):
                     errors["base"] = "device_busy"
                 else:
                     errors["base"] = "cannot_connect"
-                _LOGGER.warning(
-                    "G3 setup failed at %s (HTTP status=%s)", stage, exc.code
-                )
+                _LOGGER.warning("G3 setup failed at %s (HTTP status=%s)", stage, exc.code)
             except CommandError as exc:
                 errors["base"] = "device_busy" if exc.code == "busy" else "invalid_protocol"
                 _LOGGER.warning("G3 setup command rejected at %s (%s)", stage, exc.code)
