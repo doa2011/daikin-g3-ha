@@ -5,7 +5,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 
 from .daikin_g3.community import CommunityAdapter
-from .daikin_g3.preflight import probe
+from .daikin_g3.onboarding import probe
 from .daikin_g3.protocol import CommandError, ProtocolError
 
 _LOGGER = logging.getLogger(__name__)

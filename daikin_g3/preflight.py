@@ -1,60 +1,47 @@
-"""Minimal read-only preflight for a reachable MessagePack device."""
-import logging
-from dataclasses import dataclass
-from typing import Protocol
+"""Read-only preflight for community-firmware G3; never sends control commands.
 
-_LOGGER = logging.getLogger(__name__)
+This module deliberately does not guess firmware baseline from model names.
+Only the actual MessagePack endpoints can establish protocol compatibility.
+"""
+from dataclasses import dataclass
+from typing import Protocol, Any
 
 
 class ReadOnlyAdapter(Protocol):
     async def info(self) -> dict: ...
+    async def status(self) -> dict: ...
     async def capabilities(self) -> frozenset[str]: ...
 
 
 @dataclass(frozen=True)
 class PreflightResult:
-    # Preserve the original positional fields for existing consumers.
     protocol_reachable: bool
     actions: frozenset[str]
     info_keys: tuple[str, ...]
     status_keys: tuple[str, ...]
-    model: str = ""
-    firmware_version: str = ""
-
-
-def validate_g3_identity(info: dict) -> tuple[str, str]:
-    """Accept any MessagePack map; device model and firmware are informational."""
-    if not isinstance(info, dict):
-        raise ValueError("invalid info map")
-    model = info.get("model")
-    version = info.get("firmware_version") or info.get("version")
-    return (
-        model if isinstance(model, str) else "",
-        version if isinstance(version, str) else "",
-    )
 
 
 async def probe(adapter: ReadOnlyAdapter) -> PreflightResult:
-    """A successful MessagePack info response is sufficient for onboarding."""
+    """Probe only GET info/status/capabilities; propagate auth/protocol errors.
+
+    Avoid persisting values from info/status: device identifiers and other
+    fields may be sensitive. An empty actions set is valid but not proof
+    that screen or media features are supported.
+    """
     info = await adapter.info()
-    model, version = validate_g3_identity(info)
-
-    # Capability discovery is optional and must never block onboarding.
-    try:
-        actions = await adapter.capabilities()
-        if not isinstance(actions, frozenset) or not all(
-            isinstance(action, str) and action for action in actions
-        ):
-            raise ValueError("invalid capability action set")
-    except Exception as exc:
-        _LOGGER.debug("Device capability discovery skipped (%s)", type(exc).__name__)
-        actions = frozenset()
-
+    if not isinstance(info, dict):
+        raise ValueError("expected info and status maps")
+    status = await adapter.status()
+    if not isinstance(status, dict):
+        raise ValueError("expected info and status maps")
+    actions = await adapter.capabilities()
+    if not isinstance(actions, frozenset) or not all(
+        isinstance(action, str) and action for action in actions
+    ):
+        raise ValueError("expected validated capability action set")
     return PreflightResult(
         protocol_reachable=True,
         actions=actions,
         info_keys=tuple(sorted(k for k in info if isinstance(k, str))),
-        status_keys=(),
-        model=model,
-        firmware_version=version,
+        status_keys=tuple(sorted(k for k in status if isinstance(k, str))),
     )
