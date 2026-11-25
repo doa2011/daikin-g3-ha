@@ -66,9 +66,13 @@ async def main():
     await validate_config_flow(hass)
     entry=ConfigEntry(version=1,minor_version=1,domain="daikin_g3",title="G3 test",data={"url":"http://127.0.0.1"},source="user",options={},unique_id=None,discovery_keys={},subentries_data=[])
     adapter=AsyncMock()
+    adapter.info.return_value = {}
+    adapter.capabilities.side_effect = ConnectionError("optional capabilities unavailable")
     try:
         with patch("custom_components.daikin_g3.CommunityAdapter",return_value=adapter):
             assert await async_setup_entry(hass,entry)
+        adapter.info.assert_awaited_once()
+        adapter.capabilities.assert_awaited_once()
         for name in SERVICES:
             assert hass.services.has_service("daikin_g3",name)
         descriptions=load_yaml(Path("dist/custom_components/daikin_g3/services.yaml"))
