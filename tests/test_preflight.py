@@ -3,76 +3,69 @@ import unittest
 from daikin_g3.preflight import probe, validate_g3_identity
 
 
-GOOD_INFO = {
-    "model": "daikin",
-    "device_id": "private-device-id",
-    "firmware_version": "1.0.0-test",
-    "protocol": "tmcp",
-    "protocol_version": 2,
-    "wire_version": 1,
-    "default_wire_format": "msgpack",
-    "wire_formats": ["msgpack"],
-}
-
-
 class FakeAdapter:
-    def __init__(self):
+    def __init__(self, info=None, actions=None, capability_error=None):
+        self.info_data = {"model": "daikin"}
+        if info is not None:
+            self.info_data = info
+        self.actions = frozenset({"status.get"}) if actions is None else actions
+        self.capability_error = capability_error
         self.calls = []
 
     async def info(self):
         self.calls.append("info")
-        return dict(GOOD_INFO)
-
-    async def status(self):
-        self.calls.append("status")
-        return {"private_value": "do-not-export"}
+        return dict(self.info_data)
 
     async def capabilities(self):
         self.calls.append("capabilities")
-        return frozenset({"status.get", "screen.page.get"})
+        if self.capability_error:
+            raise self.capability_error
+        return self.actions
+
+    async def status(self):
+        raise AssertionError("status is not an onboarding requirement")
 
     async def call(self, *_args):
-        raise AssertionError("authentication probe must never send commands")
+        raise AssertionError("onboarding must never send write commands")
 
 
 class TestG3Authentication(unittest.IsolatedAsyncioTestCase):
-    async def test_requires_real_community_g3_wire_identity(self):
-        self.assertEqual(validate_g3_identity(GOOD_INFO), ("daikin", "1.0.0-test"))
+    async def test_minimal_identity_requires_only_daikin_model(self):
+        self.assertEqual(validate_g3_identity({"model": "daikin"}), ("daikin", ""))
+        self.assertEqual(
+            validate_g3_identity({"model": "daikin", "version": "community-test"}),
+            ("daikin", "community-test"),
+        )
 
-    async def test_rejects_wrong_model_or_protocol(self):
-        for key, value in (
-            ("model", "m1"),
-            ("protocol", "json"),
-            ("protocol_version", 1),
-            ("wire_version", 2),
-            ("default_wire_format", "json"),
-            ("wire_formats", ["json"]),
-        ):
-            info = dict(GOOD_INFO)
-            info[key] = value
-            with self.subTest(key=key), self.assertRaises(ValueError):
+    async def test_rejects_non_g3_model(self):
+        for info in ({}, {"model": "m1"}, {"model": None}):
+            with self.subTest(info=info), self.assertRaises(ValueError):
                 validate_g3_identity(info)
 
-    async def test_probe_authenticates_and_checks_all_read_only_endpoints(self):
-        adapter = FakeAdapter()
+    async def test_info_messagepack_map_is_core_authentication(self):
+        adapter = FakeAdapter(info={"model": "daikin"})
         result = await probe(adapter)
-        self.assertEqual(adapter.calls, ["info", "status", "capabilities"])
+        self.assertEqual(adapter.calls, ["info", "capabilities"])
         self.assertTrue(result.protocol_reachable)
         self.assertEqual(result.model, "daikin")
-        self.assertEqual(result.firmware_version, "1.0.0-test")
-        self.assertEqual(result.actions, frozenset({"status.get", "screen.page.get"}))
-        self.assertNotIn("private-device-id", repr(result))
-        self.assertNotIn("do-not-export", repr(result))
+        self.assertEqual(result.firmware_version, "")
+        self.assertEqual(result.actions, frozenset({"status.get"}))
 
-    async def test_empty_capabilities_are_preserved(self):
-        adapter = FakeAdapter()
-        async def empty():
-            adapter.calls.append("capabilities")
-            return frozenset()
-        adapter.capabilities = empty
+    async def test_missing_optional_capabilities_does_not_block_setup(self):
+        adapter = FakeAdapter(capability_error=RuntimeError("endpoint unavailable"))
+        result = await probe(adapter)
+        self.assertEqual(result.actions, frozenset())
+        self.assertTrue(result.protocol_reachable)
+
+    async def test_empty_capabilities_are_valid(self):
+        adapter = FakeAdapter(actions=frozenset())
         self.assertEqual((await probe(adapter)).actions, frozenset())
 
-    async def test_auth_failure_propagates_without_fallback_or_command(self):
+    async def test_malformed_capabilities_are_ignored(self):
+        adapter = FakeAdapter(actions=["not", "a", "frozenset"])
+        self.assertEqual((await probe(adapter)).actions, frozenset())
+
+    async def test_info_transport_or_auth_failure_still_propagates(self):
         adapter = FakeAdapter()
         async def unauthorized():
             adapter.calls.append("info")
@@ -82,12 +75,7 @@ class TestG3Authentication(unittest.IsolatedAsyncioTestCase):
             await probe(adapter)
         self.assertEqual(adapter.calls, ["info"])
 
-    async def test_invalid_status_stops_before_capabilities(self):
+    async def test_status_is_not_requested(self):
         adapter = FakeAdapter()
-        async def invalid_status():
-            adapter.calls.append("status")
-            return ["not a map"]
-        adapter.status = invalid_status
-        with self.assertRaises(ValueError):
-            await probe(adapter)
-        self.assertEqual(adapter.calls, ["info", "status"])
+        await probe(adapter)
+        self.assertNotIn("status", adapter.calls)
