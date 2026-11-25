@@ -44,13 +44,13 @@ class Album:
             if not required <= actions:
                 raise ProtocolError("photo media push unsupported")
 
-            # Keep the user's normal page layout intact. Page six must already
-            # exist and be enabled; we never rewrite the SCN3 layout implicitly.
-            await self.screen.goto(ALBUM_PAGE, confirm=True)
-
             state = await self.media.status()
             if state.get("active_id") or state.get("queue") or state.get("request", {}).get("state") == "pending":
                 raise ProtocolError("screen occupied")
+
+            # Keep the user's normal page layout intact. Page six must already
+            # exist and be enabled; we never rewrite the SCN3 layout implicitly.
+            await self.screen.goto(ALBUM_PAGE, confirm=True)
 
             image = await asyncio.to_thread(prepare_image, source, fit=fit)
             image_id = secrets.randbelow(0x7fffffff) + 1

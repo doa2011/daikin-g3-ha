@@ -34,6 +34,24 @@ class Fake:
             "messages": [{"id": self.notice, "state": "timedout"}] if self.notice else [],
         }
 
+    async def call(self, action, params):
+        self.events.append(action)
+        if action == "screen.page.get":
+            return {
+                "code": "ok",
+                "data": {
+                    "supported": True, "available": True,
+                    "current": self.page, "enabled_mask": self.enabled_mask,
+                    "count": self.enabled_mask.bit_count(),
+                    "request": self.page_request, "state": "complete",
+                },
+            }
+        if action == "screen.page.set":
+            self.page = params["page"]
+            self.page_request += 1
+            return {"code": "accepted", "data": {"request": self.page_request}}
+        raise AssertionError("unexpected adapter call: " + action)
+
     async def upload(self, ident, image):
         self.events.append("upload")
         self.image_id = ident
