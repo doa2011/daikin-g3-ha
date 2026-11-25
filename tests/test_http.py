@@ -3,6 +3,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import msgpack
 import json
+from urllib.error import HTTPError
 from daikin_g3.community import CommunityAdapter
 from daikin_g3.protocol import ProtocolError, CommandError
 
@@ -75,6 +76,14 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if request["action"] == "diagnostic.http":
+            body = json.dumps({"code":"unsupported_action","message":"media action unavailable"}).encode()
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         code = "busy" if request["action"] == "busy.test" else "accepted"
         self.reply({"request_id": request["request_id"], "code":code, "data":{}})
 
@@ -116,6 +125,16 @@ class TestHTTP(unittest.IsolatedAsyncioTestCase):
             await self.adapter._get("/api/v1/overloaded")
         self.assertEqual(error.exception.code, "busy")
         self.assertEqual(len(self.server.requests), 0)
+
+    async def test_http_error_includes_action_and_response_details(self):
+        with self.assertRaises(HTTPError) as error:
+            await self.adapter.call("diagnostic.http", {"value": 1})
+        self.assertEqual(error.exception.code, 404)
+        self.assertEqual(error.exception.g3_action, "diagnostic.http")
+        self.assertEqual(error.exception.g3_path, "/api/v1/command")
+        self.assertEqual(error.exception.g3_content_type, "application/json")
+        self.assertIn("media action unavailable", error.exception.g3_body)
+        self.assertEqual(len(self.server.requests), 1)
 
     async def test_oversized_response_rejected(self):
         with self.assertRaisesRegex(ProtocolError, "response too large"):

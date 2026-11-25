@@ -3,6 +3,7 @@ import asyncio
 from datetime import datetime, timezone
 import random
 import logging
+from urllib.error import HTTPError
 from .album import photos
 
 _LOGGER = logging.getLogger(__name__)
@@ -13,6 +14,29 @@ def read_photo(path):
     if len(data) > 25 * 1024 * 1024:
         raise ValueError("photo file too large")
     return data
+
+def _error_summary(exc):
+    """Return actionable, credential-free diagnostics for album failures."""
+    if isinstance(exc, HTTPError):
+        parts = [f"HTTP {exc.code} {exc.reason}"]
+        action = getattr(exc, "g3_action", "")
+        path = getattr(exc, "g3_path", "")
+        content_type = getattr(exc, "g3_content_type", "")
+        body = " ".join(str(getattr(exc, "g3_body", "")).split())
+        if action:
+            parts.append(f"action={action}")
+        if path:
+            parts.append(f"path={path}")
+        if content_type:
+            parts.append(f"type={content_type}")
+        if body:
+            parts.append(f"response={body}")
+        if getattr(exc, "g3_body_truncated", False):
+            parts.append("response_truncated=true")
+        return " ".join(parts)[:200]
+    detail = str(exc).strip()
+    return (f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__)[:200]
+
 
 class AlbumPlayer:
     def __init__(self, album, *, scan=photos, changed=lambda: None, settings=None):
@@ -95,9 +119,9 @@ class AlbumPlayer:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            self.last_error = str(exc)[:200] or type(exc).__name__
+            self.last_error = _error_summary(exc)
             self.status = "error"
-            _LOGGER.warning("G3 album playback stopped: %s", type(exc).__name__)
+            _LOGGER.warning("G3 album playback stopped: %s", self.last_error)
         finally:
             if self.status != "error":
                 self.status = "idle"

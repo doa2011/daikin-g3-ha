@@ -28,17 +28,27 @@ class CommunityAdapter:
         try:
             response = self.opener.open(request, timeout=self.timeout)
         except urllib.error.HTTPError as exc:
-            # Upstream v1.0.0 may return JSON busy while the normal API is
-            # MessagePack. This is an error signal, never a protocol downgrade.
-            if exc.headers.get_content_type() == "application/json":
+            # Keep bounded response details for diagnostics. Never log request
+            # headers or credentials, and never downgrade an HTTP error to
+            # MessagePack. The exact JSON busy signal remains non-retryable.
+            try:
                 payload = exc.read(4097)
-                if len(payload) <= 4096:
-                    try:
-                        error = json.loads(payload)
-                    except (ValueError, UnicodeDecodeError):
-                        error = None
-                    if isinstance(error, dict) and error.get("code") == "busy":
-                        raise CommandError("busy") from exc
+            except OSError:
+                payload = b""
+            headers = exc.headers
+            content_type = headers.get_content_type() if headers else ""
+            exc.g3_status = exc.code
+            exc.g3_path = urllib.parse.urlsplit(exc.url).path
+            exc.g3_content_type = content_type
+            exc.g3_body = payload[:512].decode("utf-8", errors="replace")
+            exc.g3_body_truncated = len(payload) > 512
+            if content_type == "application/json" and len(payload) <= 4096:
+                try:
+                    error = json.loads(payload)
+                except (ValueError, UnicodeDecodeError):
+                    error = None
+                if isinstance(error, dict) and error.get("code") == "busy":
+                    raise CommandError("busy") from exc
             raise
         with response:
             if response.headers.get_content_type() != "application/msgpack":
@@ -49,7 +59,11 @@ class CommunityAdapter:
             return data
 
     async def _get(self, path):
-        return decode_object(await asyncio.to_thread(self._request, path))
+        try:
+            return decode_object(await asyncio.to_thread(self._request, path))
+        except urllib.error.HTTPError as exc:
+            exc.g3_action = "GET " + path
+            raise
 
     async def info(self):
         return await self._get("/api/v1/info")
@@ -74,5 +88,9 @@ class CommunityAdapter:
 
     async def call(self, action, params):
         request_id, body = encode_command(action, params)
-        result = await asyncio.to_thread(self._request, "/api/v1/command", body)
+        try:
+            result = await asyncio.to_thread(self._request, "/api/v1/command", body)
+        except urllib.error.HTTPError as exc:
+            exc.g3_action = action
+            raise
         return decode_result(result, request_id)
