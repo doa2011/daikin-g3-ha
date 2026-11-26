@@ -28,17 +28,27 @@ class CommunityAdapter:
         try:
             response = self.opener.open(request, timeout=self.timeout)
         except urllib.error.HTTPError as exc:
-            # Upstream v1.0.0 may return JSON busy while the normal API is
-            # MessagePack. This is an error signal, never a protocol downgrade.
-            if exc.headers.get_content_type() == "application/json":
+            # Keep bounded response details for diagnostics. Never log request
+            # headers or credentials, and never downgrade an HTTP error to
+            # MessagePack. The exact JSON busy signal remains non-retryable.
+            try:
                 payload = exc.read(4097)
-                if len(payload) <= 4096:
-                    try:
-                        error = json.loads(payload)
-                    except (ValueError, UnicodeDecodeError):
-                        error = None
-                    if isinstance(error, dict) and error.get("code") == "busy":
-                        raise CommandError("busy") from exc
+            except OSError:
+                payload = b""
+            headers = exc.headers
+            content_type = headers.get_content_type() if headers else ""
+            exc.g3_status = exc.code
+            exc.g3_path = urllib.parse.urlsplit(exc.url).path
+            exc.g3_content_type = content_type
+            exc.g3_body = payload[:512].decode("utf-8", errors="replace")
+            exc.g3_body_truncated = len(payload) > 512
+            if content_type == "application/json" and len(payload) <= 4096:
+                try:
+                    error = json.loads(payload)
+                except (ValueError, UnicodeDecodeError):
+                    error = None
+                if isinstance(error, dict) and error.get("code") == "busy":
+                    raise CommandError("busy") from exc
             raise
         with response:
             if response.headers.get_content_type() != "application/msgpack":
@@ -49,7 +59,11 @@ class CommunityAdapter:
             return data
 
     async def _get(self, path):
-        return decode_object(await asyncio.to_thread(self._request, path))
+        try:
+            return decode_object(await asyncio.to_thread(self._request, path))
+        except urllib.error.HTTPError as exc:
+            exc.g3_action = "GET " + path
+            raise
 
     async def info(self):
         return await self._get("/api/v1/info")
@@ -58,21 +72,23 @@ class CommunityAdapter:
         return await self._get("/api/v1/status")
 
     async def capabilities(self):
-        data = await self._get("/api/v1/capabilities")
-        # GET /api/v1/capabilities is a plain map on v1.0.0; the
-        # capabilities.get command instead returns an envelope with data.actions.
-        # Accept both explicitly, without guessing from unrelated nested keys.
-        if "actions" in data:
-            actions = data["actions"]
-        elif isinstance(data.get("data"), dict):
-            actions = data["data"].get("actions")
-        else:
-            actions = None
+        # G3 firmware exposes capability discovery as the read-only
+        # capabilities.get command. Do not use GET /api/v1/capabilities:
+        # that route is not registered by the BRY88BBA15G HTTP server.
+        result = await self.call("capabilities.get", {})
+        data = result.get("data")
+        if not isinstance(data, dict):
+            raise ProtocolError("invalid capabilities response")
+        actions = data.get("actions")
         if not isinstance(actions, list) or not all(isinstance(x, str) and x for x in actions):
             raise ProtocolError("unsupported actions format")
         return frozenset(actions)
 
     async def call(self, action, params):
         request_id, body = encode_command(action, params)
-        result = await asyncio.to_thread(self._request, "/api/v1/command", body)
+        try:
+            result = await asyncio.to_thread(self._request, "/api/v1/command", body)
+        except urllib.error.HTTPError as exc:
+            exc.g3_action = action
+            raise
         return decode_result(result, request_id)

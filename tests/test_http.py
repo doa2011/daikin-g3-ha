@@ -3,6 +3,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import msgpack
 import json
+from urllib.error import HTTPError
 from daikin_g3.community import CommunityAdapter
 from daikin_g3.protocol import ProtocolError, CommandError
 
@@ -50,13 +51,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'{"online":true}')
             return
-        if self.path == "/api/v1/capabilities":
-            self.reply({"actions":["status.get","screen.page.set"]})
-        elif self.path == "/api/v1/info":
+        if self.path == "/api/v1/info":
             self.reply({"model":"BRY88BBA15G"})
         elif self.path == "/api/v1/status":
             self.reply({"online":True})
         else:
+            # The G3 HTTP server does not expose a capabilities GET route.
             self.send_error(404)
 
     def do_POST(self):
@@ -67,9 +67,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         request = msgpack.unpackb(self.rfile.read(int(self.headers["Content-Length"])), raw=False)
         self.server.requests.append(request)
+        if request["action"] == "capabilities.get":
+            self.reply({
+                "request_id": request["request_id"],
+                "code": "ok",
+                "data": {"actions": ["status.get", "screen.media.get", "screen.media.begin", "screen.push.send", "screen.push.dismiss"]}
+            })
+            return
         if request["action"] == "busy.http":
             body = json.dumps({"code":"busy","message":"overloaded"}).encode()
             self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if request["action"] == "diagnostic.http":
+            body = json.dumps({"code":"unsupported_action","message":"media action unavailable"}).encode()
+            self.send_response(404)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -92,7 +107,13 @@ class TestHTTP(unittest.IsolatedAsyncioTestCase):
         self.thread.join()
     async def test_queries(self):
         self.assertEqual((await self.adapter.info())["model"],"BRY88BBA15G")
-        self.assertEqual(await self.adapter.capabilities(),frozenset(("status.get","screen.page.set")))
+        self.assertEqual(
+            await self.adapter.capabilities(),
+            frozenset(("status.get","screen.media.get","screen.media.begin","screen.push.send","screen.push.dismiss")),
+        )
+        self.assertEqual(len(self.server.requests), 1)
+        self.assertEqual(self.server.requests[0]["action"], "capabilities.get")
+        self.assertEqual(self.server.requests[0]["params"], {})
         self.assertTrue((await self.adapter.status())["online"])
     async def test_command(self):
         result = await self.adapter.call("screen.page.set",{"direction":"next"})
@@ -116,6 +137,16 @@ class TestHTTP(unittest.IsolatedAsyncioTestCase):
             await self.adapter._get("/api/v1/overloaded")
         self.assertEqual(error.exception.code, "busy")
         self.assertEqual(len(self.server.requests), 0)
+
+    async def test_http_error_includes_action_and_response_details(self):
+        with self.assertRaises(HTTPError) as error:
+            await self.adapter.call("diagnostic.http", {"value": 1})
+        self.assertEqual(error.exception.code, 404)
+        self.assertEqual(error.exception.g3_action, "diagnostic.http")
+        self.assertEqual(error.exception.g3_path, "/api/v1/command")
+        self.assertEqual(error.exception.g3_content_type, "application/json")
+        self.assertIn("media action unavailable", error.exception.g3_body)
+        self.assertEqual(len(self.server.requests), 1)
 
     async def test_oversized_response_rejected(self):
         with self.assertRaisesRegex(ProtocolError, "response too large"):

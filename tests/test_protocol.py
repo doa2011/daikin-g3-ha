@@ -1,5 +1,6 @@
 import unittest
 import msgpack
+from unittest.mock import AsyncMock
 from daikin_g3.protocol import encode_command, decode_result, decode_object, ProtocolError, CommandError
 from daikin_g3.auth import auth_headers
 from daikin_g3.community import CommunityAdapter
@@ -23,26 +24,19 @@ class TestProtocol(unittest.TestCase):
         with self.assertRaises(ValueError): CommunityAdapter("http://admin:secret@host")
 
 class TestCapabilityEnvelope(unittest.IsolatedAsyncioTestCase):
-    async def test_plain_capability_map(self):
-        adapter = CommunityAdapter("http://127.0.0.1")
-        async def fake_get(path):
-            self.assertEqual(path, "/api/v1/capabilities")
-            return {"actions": ["status.get", "screen.page.get"]}
-        adapter._get = fake_get
-        self.assertEqual(await adapter.capabilities(), frozenset({"status.get", "screen.page.get"}))
-
     async def test_command_style_envelope(self):
         adapter = CommunityAdapter("http://127.0.0.1")
-        async def fake_get(path):
-            return {"code": "ok", "data": {"actions": ["status.get"]}}
-        adapter._get = fake_get
+        adapter.call = AsyncMock(return_value={
+            "request_id": "abc", "code": "ok", "data": {"actions": ["status.get"]}
+        })
         self.assertEqual(await adapter.capabilities(), frozenset({"status.get"}))
+        adapter.call.assert_awaited_once_with("capabilities.get", {})
 
     async def test_invalid_action_rejected(self):
         adapter = CommunityAdapter("http://127.0.0.1")
-        async def fake_get(path):
-            return {"data": {"actions": ["status.get", None]}}
-        adapter._get = fake_get
+        adapter.call = AsyncMock(return_value={
+            "request_id": "abc", "code": "ok", "data": {"actions": ["status.get", None]}
+        })
         with self.assertRaises(ProtocolError):
             await adapter.capabilities()
 
