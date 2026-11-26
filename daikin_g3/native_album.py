@@ -17,7 +17,7 @@ class NativeAlbum(ContinuousAlbum):
         self.previous_page = None
         self.entered = False
 
-    async def enter(self):
+    async def enter(self, *, wake=True):
         """Select page six before the first potentially long JPEG upload."""
         if self.entered:
             return
@@ -36,6 +36,10 @@ class NativeAlbum(ContinuousAlbum):
                         raise ProtocolError("invalid current screen page")
                     if current != 6:
                         self.previous_page = current
+                    # A same-page request is deliberately sent when asleep:
+                    # the MCU page request sets reminder_wake and the display
+                    # policy consumes it on the next power tick.
+                    if current != 6 or (wake and page.get("asleep") is True):
                         result = await self.screen.goto(6, confirm=True)
                         if result.get("current") != 6:
                             raise ProtocolError("MCU did not select album page six")
@@ -53,7 +57,7 @@ class NativeAlbum(ContinuousAlbum):
             raise ProtocolError("album image not prepared")
         ident, image = self.pending
         old = self.current
-        await self.enter()
+        await self.enter(wake=wake)
         deadline = asyncio.get_running_loop().time() + 30
         while True:
             async with self.media.lock:
@@ -70,6 +74,13 @@ class NativeAlbum(ContinuousAlbum):
                         raise ProtocolError("invalid current screen page")
                     if current_page != 6:
                         raise ProtocolError("album page changed by user or display policy")
+                    # The first JPEG upload can outlast the idle timeout.
+                    # Recheck at presentation, not just at initial page entry.
+                    # Do not wake for every later frame or override schedules.
+                    if old is None and wake and page.get("asleep") is True:
+                        result = await self.screen.goto(6, confirm=True)
+                        if result.get("current") != 6 or result.get("asleep") is True:
+                            raise ProtocolError("MCU did not wake for native album")
                     self.attempted = ident
                     await self.media.command("screen.album.set", {"id": ident})
                     self.current, self.pending, self.attempted = ident, None, None

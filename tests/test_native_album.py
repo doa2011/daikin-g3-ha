@@ -9,6 +9,16 @@ class NativeMedia(Media):
     def __init__(self):
         super().__init__()
         self.fail = False
+        self.asleep = False
+        self.ignore_wake = False
+
+    async def call(self, action, params):
+        reply = await super().call(action, params)
+        if action == "screen.page.set" and not self.ignore_wake:
+            self.asleep = False
+        if action == "screen.page.get":
+            reply["data"]["asleep"] = self.asleep
+        return reply
 
     async def command(self, action, params):
         ident = params["id"]
@@ -26,6 +36,63 @@ class NativeMedia(Media):
 
 
 class TestNative(unittest.IsolatedAsyncioTestCase):
+    async def test_restart_on_sleeping_album_page_wakes_without_changing_saved_page(self):
+        media = NativeMedia()
+        media.page = 6
+        media.asleep = True
+        album = NativeAlbum(media)
+        await album.enter(wake=True)
+        self.assertFalse(media.asleep)
+        self.assertIsNone(album.previous_page)
+        await album.prepare(photo("red"))
+        await album.present(brightness=60, wake=True)
+        self.assertEqual(media.events.count("screen.page.set"), 1)
+        await album.close()
+        self.assertEqual(media.page, 6)
+
+    async def test_first_upload_can_expire_idle_timer(self):
+        media = NativeMedia()
+        album = NativeAlbum(media)
+        await album.enter(wake=True)
+        await album.prepare(photo("red"))
+        media.asleep = True
+        await album.present(brightness=60, wake=True)
+        self.assertFalse(media.asleep)
+        self.assertEqual(media.events.count("screen.page.set"), 2)
+        await album.prepare(photo("blue"))
+        media.asleep = True
+        await album.present(brightness=60, wake=True)
+        # Subsequent frames do not repeatedly override display policy.
+        self.assertTrue(media.asleep)
+        self.assertEqual(media.events.count("screen.page.set"), 2)
+        await album.close()
+
+    async def test_wake_disabled_does_not_rewake_same_page(self):
+        media = NativeMedia()
+        media.page = 6
+        media.asleep = True
+        album = NativeAlbum(media)
+        await album.enter(wake=False)
+        await album.prepare(photo("red"))
+        await album.present(brightness=60, wake=False)
+        self.assertTrue(media.asleep)
+        self.assertNotIn("screen.page.set", media.events)
+        await album.close()
+
+    async def test_first_frame_reports_unconfirmed_wake(self):
+        media = NativeMedia()
+        media.page = 6
+        album = NativeAlbum(media)
+        await album.enter()
+        await album.prepare(photo("red"))
+        media.asleep = True
+        media.ignore_wake = True
+        with self.assertRaisesRegex(ProtocolError, "did not wake"):
+            await album.present(brightness=60, wake=True)
+        self.assertIsNone(media.image)
+        await album.close()
+
+
     async def test_enter_before_upload(self):
         media = NativeMedia()
         album = NativeAlbum(media)

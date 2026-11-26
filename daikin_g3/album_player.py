@@ -187,7 +187,7 @@ class AlbumPlayer:
         self._interrupt.clear()
         self._step = 1
         if isinstance(session, NativeAlbum):
-            await session.enter()
+            await session.enter(wake=self.settings["wake"])
             if self._stop:
                 return
         await session.prepare(await asyncio.to_thread(read_photo, paths[index]))
