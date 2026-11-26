@@ -4,7 +4,7 @@ from .continuous_album import ContinuousAlbum
 from .protocol import ProtocolError
 from .screen import Screen
 
-NATIVE_REQUIRED = {"screen.album.set", "screen.album.clear", "screen.page.get",
+NATIVE_REQUIRED = {"screen.album.set", "screen.album.clear", "screen.page.get", "screen.page.set",
                    "screen.media.get", "screen.media.begin", "screen.media.chunk",
                    "screen.media.commit", "screen.media.cancel"}
 
@@ -15,6 +15,35 @@ class NativeAlbum(ContinuousAlbum):
         self.attempted = None
         self.screen = Screen(media.adapter)
         self.previous_page = None
+        self.entered = False
+
+    async def enter(self):
+        """Select page six before the first potentially long JPEG upload."""
+        if self.entered:
+            return
+        deadline = asyncio.get_running_loop().time() + 30
+        while True:
+            async with self.media.lock:
+                state = await self.media.status()
+                if not state.get("active_id") and not state.get("queue") and not state.get("suspended"):
+                    page = await self.screen.state()
+                    if (page.get("available") is not True
+                            or page.get("supported") is not True
+                            or not page.get("enabled_mask", 0) & (1 << 5)):
+                        raise ProtocolError("enable page six before starting native album")
+                    current = page.get("current")
+                    if type(current) is not int or not 1 <= current <= 8:
+                        raise ProtocolError("invalid current screen page")
+                    if current != 6:
+                        self.previous_page = current
+                        result = await self.screen.goto(6, confirm=True)
+                        if result.get("current") != 6:
+                            raise ProtocolError("MCU did not select album page six")
+                    self.entered = True
+                    return
+            if asyncio.get_running_loop().time() >= deadline:
+                raise ProtocolError("native album paused by screen notification")
+            await asyncio.sleep(.25)
 
     async def present(self, *, brightness, wake):
         # Native JPEG is rendered only while MCU page six is selected. Select
@@ -24,7 +53,7 @@ class NativeAlbum(ContinuousAlbum):
             raise ProtocolError("album image not prepared")
         ident, image = self.pending
         old = self.current
-        first = self.current is None
+        await self.enter()
         deadline = asyncio.get_running_loop().time() + 30
         while True:
             async with self.media.lock:
@@ -39,14 +68,8 @@ class NativeAlbum(ContinuousAlbum):
                     current_page = page.get("current")
                     if type(current_page) is not int or not 1 <= current_page <= 8:
                         raise ProtocolError("invalid current screen page")
-                    if first:
-                        if current_page != 6:
-                            self.previous_page = current_page
-                            # Wait for the MCU page ACK before asking it to
-                            # render a native album frame on page six.
-                            await self.screen.goto(6, confirm=True)
-                    elif current_page != 6:
-                        raise ProtocolError("album page changed by user")
+                    if current_page != 6:
+                        raise ProtocolError("album page changed by user or display policy")
                     self.attempted = ident
                     await self.media.command("screen.album.set", {"id": ident})
                     self.current, self.pending, self.attempted = ident, None, None
@@ -90,5 +113,6 @@ class NativeAlbum(ContinuousAlbum):
         pending_id = self.pending[0] if self.pending is not None else None
         self.pending = None
         self.current = self.attempted = None
+        self.entered = False
         for ident in dict.fromkeys(ids + ([pending_id] if pending_id else [])):
             await self.media.cancel(ident)

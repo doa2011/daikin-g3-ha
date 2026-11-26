@@ -7,6 +7,7 @@ from urllib.error import HTTPError
 from .album import photos
 from .continuous_album import ContinuousAlbum, REQUIRED
 from .native_album import NativeAlbum, NATIVE_REQUIRED
+from .protocol import ProtocolError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,6 +39,34 @@ def _error_summary(exc):
         return " ".join(parts)[:200]
     detail = str(exc).strip()
     return (f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__)[:200]
+
+
+async def select_album_session(media, *, timeout=15, interval=.5):
+    actions = await media.adapter.capabilities()
+    native = {"screen.album.set", "screen.album.clear"}
+    if native & actions:
+        if not NATIVE_REQUIRED <= actions:
+            raise ProtocolError("native album actions incomplete (including page.set)")
+        # Capabilities are static ESP32 actions; the MCU media handshake may
+        # still be starting. Do not silently choose notifications before it
+        # becomes available.
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            state = await media.status()
+            if state.get("native_album_supported") is True and state.get("available") is not False:
+                _LOGGER.info("G3 album mode: native page six")
+                return NativeAlbum(media)
+            if state.get("available") is True:
+                _LOGGER.warning("G3 album mode: compatibility (MCU native album unsupported)")
+                break
+            if asyncio.get_running_loop().time() >= deadline:
+                raise ProtocolError("MCU media negotiation timed out; native album not ready")
+            await asyncio.sleep(interval)
+    if REQUIRED <= actions:
+        _LOGGER.info("G3 album mode: continuous notification compatibility")
+        return ContinuousAlbum(media)
+    _LOGGER.info("G3 album mode: legacy")
+    return None
 
 
 class AlbumPlayer:
@@ -96,11 +125,7 @@ class AlbumPlayer:
         try:
             media = getattr(self.album, "media", None)
             if media is not None:
-                actions = await media.adapter.capabilities()
-                if NATIVE_REQUIRED <= actions and (await media.status()).get("native_album_supported") is True:
-                    self._continuous = NativeAlbum(media)
-                elif REQUIRED <= actions:
-                    self._continuous = ContinuousAlbum(media)
+                self._continuous = await select_album_session(media)
                 if self._continuous is not None:
                     await self._run_continuous(paths, shuffled)
                     return
@@ -161,6 +186,10 @@ class AlbumPlayer:
         index = 0
         self._interrupt.clear()
         self._step = 1
+        if isinstance(session, NativeAlbum):
+            await session.enter()
+            if self._stop:
+                return
         await session.prepare(await asyncio.to_thread(read_photo, paths[index]))
         if self._stop:
             return

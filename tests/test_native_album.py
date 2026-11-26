@@ -1,5 +1,6 @@
 import unittest
-from daikin_g3.native_album import NativeAlbum
+from daikin_g3.native_album import NativeAlbum, NATIVE_REQUIRED
+from daikin_g3.album_player import select_album_session
 from daikin_g3.protocol import ProtocolError
 from test_continuous_album import Media, photo
 
@@ -25,6 +26,50 @@ class NativeMedia(Media):
 
 
 class TestNative(unittest.IsolatedAsyncioTestCase):
+    async def test_enter_before_upload(self):
+        media = NativeMedia()
+        album = NativeAlbum(media)
+        await album.enter()
+        self.assertEqual(media.page, 6)
+        await album.prepare(photo("red"))
+        self.assertLess(media.events.index("screen.page.set"),
+                        next(i for i, e in enumerate(media.events)
+                             if isinstance(e, tuple) and e[0] == "upload"))
+        await album.present(brightness=60, wake=True)
+        self.assertEqual(media.events.count("screen.page.set"), 1)
+        await album.close()
+
+    async def test_negotiation_waits_for_ready_mcu(self):
+        media = NativeMedia()
+        states = iter([{"available": False, "native_album_supported": False},
+                       {"available": True, "native_album_supported": True}])
+        async def capabilities():
+            return NATIVE_REQUIRED
+        async def status():
+            return next(states)
+        media.capabilities = capabilities
+        media.status = status
+        self.assertIsInstance(await select_album_session(media, interval=.001), NativeAlbum)
+
+    async def test_missing_page_set_not_silent_fallback(self):
+        media = NativeMedia()
+        async def capabilities():
+            return NATIVE_REQUIRED - {"screen.page.set"}
+        media.capabilities = capabilities
+        with self.assertRaisesRegex(ProtocolError, "actions incomplete"):
+            await select_album_session(media)
+
+    async def test_not_ready_does_not_fallback(self):
+        media = NativeMedia()
+        async def capabilities():
+            return NATIVE_REQUIRED
+        async def status():
+            return {"available": False, "native_album_supported": False}
+        media.capabilities = capabilities
+        media.status = status
+        with self.assertRaisesRegex(ProtocolError, "negotiation timed out"):
+            await select_album_session(media, timeout=0)
+
     async def test_swap_selects_page_six_and_restores_previous_page(self):
         media = NativeMedia()
         album = NativeAlbum(media)
@@ -78,7 +123,7 @@ class TestNative(unittest.IsolatedAsyncioTestCase):
         await album.present(brightness=60, wake=True)
         media.page = 2
         await album.prepare(photo("blue"))
-        with self.assertRaisesRegex(ProtocolError, "album page changed by user"):
+        with self.assertRaisesRegex(ProtocolError, "album page changed by user or display policy"):
             await album.present(brightness=60, wake=True)
         await album.close()
         self.assertEqual(media.page, 2)
