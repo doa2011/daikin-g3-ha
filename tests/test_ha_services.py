@@ -19,6 +19,22 @@ class TestServices(unittest.IsolatedAsyncioTestCase):
     async def test_dismiss(self):
         await dispatch(self.r,"dismiss",{"notice_id":3})
         self.r["notifications"].dismiss.assert_awaited_once_with(3)
+    async def test_album_services(self):
+        self.r["media_queue"]=AsyncMock()
+        await dispatch(self.r,"start_album",{"directory":"/media/photos","shuffle":True,"seconds":15})
+        self.r["media_queue"].start_album.assert_awaited_once_with("/media/photos",shuffle=True,seconds=15)
+        await dispatch(self.r,"stop_album",{})
+        self.r["media_queue"].stop_album.assert_awaited_once_with()
+    async def test_foreground_preempts_album(self):
+        self.r["media_queue"]=AsyncMock()
+        await dispatch(self.r,"show_message",{"text":"Doorbell"})
+        self.r["media_queue"].foreground.assert_awaited_once_with()
+    async def test_native_album_survives_message(self):
+        self.r["media_queue"]=AsyncMock()
+        self.r["media_queue"].native_album=True
+        await dispatch(self.r,"show_message",{"text":"Doorbell"})
+        self.r["media_queue"].foreground.assert_not_awaited()
+        self.r["notifications"].send.assert_awaited_once()
     async def test_unknown(self):
         with self.assertRaises(ValueError):
             await dispatch(self.r,"unknown",{})
