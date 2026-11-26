@@ -6,6 +6,7 @@ import logging
 from urllib.error import HTTPError
 from .album import photos
 from .continuous_album import ContinuousAlbum, REQUIRED
+from .native_album import NativeAlbum, NATIVE_REQUIRED
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -94,10 +95,15 @@ class AlbumPlayer:
             random.shuffle(paths)
         try:
             media = getattr(self.album, "media", None)
-            if media is not None and REQUIRED <= await media.adapter.capabilities():
-                self._continuous = ContinuousAlbum(media)
-                await self._run_continuous(paths, shuffled)
-                return
+            if media is not None:
+                actions = await media.adapter.capabilities()
+                if NATIVE_REQUIRED <= actions and (await media.status()).get("native_album_supported") is True:
+                    self._continuous = NativeAlbum(media)
+                elif REQUIRED <= actions:
+                    self._continuous = ContinuousAlbum(media)
+                if self._continuous is not None:
+                    await self._run_continuous(paths, shuffled)
+                    return
             while not self._stop:
                 self._interrupt.clear()
                 self._step = 1
@@ -211,6 +217,10 @@ class AlbumPlayer:
 
     async def foreground(self):
         return await self.stop_album()
+
+    @property
+    def native_album(self):
+        return isinstance(self._continuous, NativeAlbum) and self.running
 
     async def close(self):
         await self.stop_album()
