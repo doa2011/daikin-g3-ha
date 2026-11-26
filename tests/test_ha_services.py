@@ -29,6 +29,12 @@ class TestServices(unittest.IsolatedAsyncioTestCase):
         self.r["media_queue"]=AsyncMock()
         await dispatch(self.r,"show_message",{"text":"Doorbell"})
         self.r["media_queue"].foreground.assert_awaited_once_with()
+    async def test_native_album_survives_message(self):
+        self.r["media_queue"]=AsyncMock()
+        self.r["media_queue"].native_album=True
+        await dispatch(self.r,"show_message",{"text":"Doorbell"})
+        self.r["media_queue"].foreground.assert_not_awaited()
+        self.r["notifications"].send.assert_awaited_once()
     async def test_unknown(self):
         with self.assertRaises(ValueError):
             await dispatch(self.r,"unknown",{})
