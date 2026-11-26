@@ -139,6 +139,18 @@ class AlbumPlayer:
             self.status = "error"
             _LOGGER.warning("G3 album playback stopped: %s", self.last_error)
         finally:
+            # A decoder/protocol failure must release this session's album ID
+            # and restore the page when the user has not navigated elsewhere.
+            # Keep the session object if cleanup fails so stop_album() can retry.
+            if self._continuous is not None:
+                try:
+                    await self._continuous.close()
+                    self._continuous = None
+                except Exception as cleanup_exc:
+                    detail = _error_summary(cleanup_exc)
+                    self.last_error = ((self.last_error + "; cleanup: ") if self.last_error else "cleanup: ") + detail
+                    self.last_error = self.last_error[:200]
+                    self.status = "error"
             if self.status != "error":
                 self.status = "idle"
             self._task = None
