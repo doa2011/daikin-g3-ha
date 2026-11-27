@@ -48,6 +48,13 @@ class Media:
                 raise ProtocolError("media unavailable")
             if any(x.get("id")==image_id for x in state.get("images",[])):
                 raise ProtocolError("image ID already exists")
+            if state.get("binary_upload_supported") is True and callable(getattr(self.adapter, "upload_jpeg", None)):
+                entry = await self.adapter.upload_jpeg(image_id, image)
+                if (entry.get("id"), entry.get("state"), entry.get("total"),
+                        entry.get("offset"), entry.get("crc32")) != (
+                        image_id, "ready", len(data), len(data), image.crc32):
+                    raise ProtocolError("binary image integrity mismatch")
+                return entry
             await self.command("screen.media.begin",{"id":image_id,"total":len(data),"crc32":image.crc32,"width":image.width,"height":image.height})
             for offset in range(0,len(data),512):
                 await self.command("screen.media.chunk",{"id":image_id,"offset":offset,"bytes":base64.b64encode(data[offset:offset+512]).decode("ascii")})

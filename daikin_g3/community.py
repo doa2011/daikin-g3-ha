@@ -3,6 +3,7 @@ import urllib.request
 import urllib.parse
 import urllib.error
 import json
+import struct
 from .auth import auth_headers
 from .protocol import encode_command, decode_object, decode_result, ProtocolError, CommandError
 
@@ -20,13 +21,13 @@ class CommunityAdapter:
         self.timeout = timeout
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
 
-    def _request(self, path, body=None):
+    def _request(self, path, body=None, *, content_type="application/msgpack", timeout=None):
         headers = {**self.headers, "Accept":"application/msgpack"}
         if body is not None:
-            headers["Content-Type"] = "application/msgpack"
+            headers["Content-Type"] = content_type
         request = urllib.request.Request(self.base_url + path, data=body, headers=headers)
         try:
-            response = self.opener.open(request, timeout=self.timeout)
+            response = self.opener.open(request, timeout=self.timeout if timeout is None else timeout)
         except urllib.error.HTTPError as exc:
             # Keep bounded response details for diagnostics. Never log request
             # headers or credentials, and never downgrade an HTTP error to
@@ -92,3 +93,24 @@ class CommunityAdapter:
             exc.g3_action = action
             raise
         return decode_result(result, request_id)
+
+    async def upload_jpeg(self, image_id, image):
+        # Keep the same credential/redirect policy as regular commands.
+        # The device streams this body in 512-byte blocks; no JPEG-sized
+        # allocation on ESP32. An uncertain failure is not retried here.
+        header = struct.pack("<IIIHH", image_id, len(image.data), image.crc32,
+                             image.width, image.height)
+        try:
+            result = decode_object(await asyncio.to_thread(
+                self._request, "/api/v1/screen/media/jpeg",
+                header + image.data, content_type="application/octet-stream",
+                timeout=max(self.timeout, 130)))
+        except urllib.error.HTTPError as exc:
+            exc.g3_action = "screen.media.jpeg"
+            raise
+        if not isinstance(result, dict) or result.get("code") != "ok":
+            raise ProtocolError("binary JPEG upload rejected")
+        data = result.get("data")
+        if not isinstance(data, dict):
+            raise ProtocolError("invalid binary JPEG receipt")
+        return data

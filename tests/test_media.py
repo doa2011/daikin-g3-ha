@@ -1,6 +1,10 @@
 import unittest
 import base64
 import zlib
+import struct
+from unittest.mock import patch
+from daikin_g3.community import CommunityAdapter
+import msgpack
 from daikin_g3.images import PreparedImage
 from daikin_g3.media import Media
 from daikin_g3.protocol import ProtocolError
@@ -57,3 +61,59 @@ class Tests(unittest.IsolatedAsyncioTestCase):
         f=Fake()
         await Media(f).cancel(7)
         self.assertEqual(f.calls[0],("screen.media.cancel",{"id":7}))
+
+class BinaryFake(Fake):
+    def __init__(self):
+        super().__init__()
+        self.binary_calls=[]
+        self.bad=False
+        self.fail=False
+
+    async def call(self, action, params):
+        reply=await super().call(action, params)
+        if action=="screen.media.get":
+            reply["data"]["binary_upload_supported"]=True
+        return reply
+
+    async def upload_jpeg(self, ident, prepared):
+        self.binary_calls.append((ident, prepared))
+        if self.fail:
+            raise ProtocolError("interrupted upload")
+        return {"id":ident,"state":"ready","total":len(prepared.data),
+                "offset":len(prepared.data),"crc32":0 if self.bad else prepared.crc32}
+
+class BinaryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fast_route_uses_one_upload(self):
+        f=BinaryFake()
+        result=await Media(f).upload(7,image())
+        self.assertEqual(result["state"],"ready")
+        self.assertEqual(f.binary_calls,[(7,image())])
+        self.assertEqual(f.calls,[])
+
+    async def test_integrity_failure_does_not_retry_legacy(self):
+        f=BinaryFake()
+        f.bad=True
+        with self.assertRaisesRegex(ProtocolError,"integrity mismatch"):
+            await Media(f).upload(7,image())
+        self.assertEqual(len(f.binary_calls),1)
+        self.assertEqual(f.calls,[])
+
+    async def test_ambiguous_upload_does_not_retry_legacy(self):
+        f=BinaryFake()
+        f.fail=True
+        with self.assertRaisesRegex(ProtocolError,"interrupted"):
+            await Media(f).upload(7,image())
+        self.assertEqual(f.calls,[])
+
+    async def test_binary_envelope(self):
+        a=CommunityAdapter("http://192.0.2.1")
+        prepared=image()
+        data={"id":7,"state":"ready","total":len(prepared.data),
+              "offset":len(prepared.data),"crc32":prepared.crc32}
+        with patch.object(a,"_request",return_value=msgpack.packb({"code":"ok","data":data},use_bin_type=True)) as request:
+            self.assertEqual(await a.upload_jpeg(7,prepared),data)
+        args,kwargs=request.call_args
+        self.assertEqual(args[0],"/api/v1/screen/media/jpeg")
+        self.assertEqual(struct.unpack("<IIIHH",args[1][:16]),(7,len(prepared.data),prepared.crc32,480,854))
+        self.assertEqual(args[1][16:],prepared.data)
+        self.assertEqual(kwargs["content_type"],"application/octet-stream")
