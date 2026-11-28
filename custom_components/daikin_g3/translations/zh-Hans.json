@@ -111,6 +111,46 @@
           "description": "通知编号"
         }
       }
+    },
+    "start_album": {
+      "name": "启动电子相册",
+      "description": "从 Home Assistant 可访问的本地目录轮播照片；NAS 可通过挂载目录使用。",
+      "fields": {
+        "entry_id": {
+          "name": "G3设备",
+          "description": "G3设备"
+        },
+        "directory": {
+          "name": "照片目录",
+          "description": "HA 可访问的照片目录，例如 /media/photos"
+        },
+        "shuffle": {
+          "name": "随机播放",
+          "description": "随机播放照片"
+        },
+        "seconds": {
+          "name": "每张照片时长",
+          "description": "每张照片显示秒数"
+        },
+        "brightness": {
+          "name": "屏幕亮度",
+          "description": "屏幕亮度百分比"
+        },
+        "wake": {
+          "name": "唤醒屏幕",
+          "description": "是否唤醒屏幕"
+        }
+      }
+    },
+    "stop_album": {
+      "name": "停止电子相册",
+      "description": "在当前照片完成后停止轮播。",
+      "fields": {
+        "entry_id": {
+          "name": "G3设备",
+          "description": "G3设备"
+        }
+      }
     }
   },
   "config": {
@@ -125,7 +165,12 @@
     },
     "error": {
       "invalid_url": "设备地址无效",
-      "cannot_connect": "无法连接"
+      "cannot_connect": "无法连接",
+      "invalid_auth": "管理密码错误",
+      "unsupported_api": "设备 API 不支持",
+      "device_busy": "设备忙，请重试",
+      "invalid_protocol": "设备协议响应无效",
+      "unsupported_device": "不支持的设备或固件"
     },
     "abort": {
       "already_configured": "已经配置"

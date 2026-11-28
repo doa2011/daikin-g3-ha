@@ -1,7 +1,7 @@
 {
   "domain": "daikin_g3",
   "name": "Daikin G3",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "documentation": "https://github.com/doa2011/daikin-g3-ha",
   "codeowners": [],
   "config_flow": true,

@@ -4,7 +4,7 @@ from homeassistant.helpers import config_validation as cv
 from .daikin_g3.ha_services import dispatch
 
 DOMAIN="daikin_g3"
-SERVICES=("show_message","show_camera","show_dashboard","dismiss")
+SERVICES=("show_message","show_camera","show_dashboard","dismiss","start_album","stop_album")
 ID=vol.All(vol.Coerce(int),vol.Range(min=1,max=0xffffffff))
 BASE={vol.Required("entry_id"):cv.string}
 DISPLAY={vol.Optional("seconds"):vol.All(vol.Coerce(int),vol.Range(min=1,max=3600)),vol.Optional("brightness"):vol.All(vol.Coerce(int),vol.Range(min=1,max=100)),vol.Optional("wake"):cv.boolean}
@@ -14,6 +14,8 @@ SCHEMAS={
     "show_camera":vol.Schema({**BASE,**DISPLAY,**NOTICE,vol.Required("camera"):cv.entity_id}),
     "show_dashboard":vol.Schema({**BASE,**DISPLAY,vol.Optional("title"):cv.string,vol.Required("entities"):vol.All(cv.ensure_list,[cv.entity_id],vol.Length(min=1,max=8))}),
     "dismiss":vol.Schema({**BASE,vol.Required("notice_id"):ID}),
+    "start_album":vol.Schema({**BASE,**DISPLAY,vol.Required("directory"):cv.string,vol.Optional("shuffle",default=False):cv.boolean}),
+    "stop_album":vol.Schema(dict(BASE)),
 }
 
 def register(hass):

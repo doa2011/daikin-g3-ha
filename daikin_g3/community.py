@@ -3,8 +3,9 @@ import urllib.request
 import urllib.parse
 import urllib.error
 import json
+import struct
 from .auth import auth_headers
-from .protocol import encode_command, decode_object, decode_result, ProtocolError, CommandError
+from .protocol import encode_command, decode_object, decode_result, ProtocolError, CommandError, AlbumPreempted
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -20,25 +21,35 @@ class CommunityAdapter:
         self.timeout = timeout
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
 
-    def _request(self, path, body=None):
+    def _request(self, path, body=None, *, content_type="application/msgpack", timeout=None):
         headers = {**self.headers, "Accept":"application/msgpack"}
         if body is not None:
-            headers["Content-Type"] = "application/msgpack"
+            headers["Content-Type"] = content_type
         request = urllib.request.Request(self.base_url + path, data=body, headers=headers)
         try:
-            response = self.opener.open(request, timeout=self.timeout)
+            response = self.opener.open(request, timeout=self.timeout if timeout is None else timeout)
         except urllib.error.HTTPError as exc:
-            # Upstream v1.0.0 may return JSON busy while the normal API is
-            # MessagePack. This is an error signal, never a protocol downgrade.
-            if exc.headers.get_content_type() == "application/json":
+            # Keep bounded response details for diagnostics. Never log request
+            # headers or credentials, and never downgrade an HTTP error to
+            # MessagePack. The exact JSON busy signal remains non-retryable.
+            try:
                 payload = exc.read(4097)
-                if len(payload) <= 4096:
-                    try:
-                        error = json.loads(payload)
-                    except (ValueError, UnicodeDecodeError):
-                        error = None
-                    if isinstance(error, dict) and error.get("code") == "busy":
-                        raise CommandError("busy") from exc
+            except OSError:
+                payload = b""
+            headers = exc.headers
+            content_type = headers.get_content_type() if headers else ""
+            exc.g3_status = exc.code
+            exc.g3_path = urllib.parse.urlsplit(exc.url).path
+            exc.g3_content_type = content_type
+            exc.g3_body = payload[:512].decode("utf-8", errors="replace")
+            exc.g3_body_truncated = len(payload) > 512
+            if content_type == "application/json" and len(payload) <= 4096:
+                try:
+                    error = json.loads(payload)
+                except (ValueError, UnicodeDecodeError):
+                    error = None
+                if isinstance(error, dict) and error.get("code") == "busy":
+                    raise CommandError("busy") from exc
             raise
         with response:
             if response.headers.get_content_type() != "application/msgpack":
@@ -49,7 +60,11 @@ class CommunityAdapter:
             return data
 
     async def _get(self, path):
-        return decode_object(await asyncio.to_thread(self._request, path))
+        try:
+            return decode_object(await asyncio.to_thread(self._request, path))
+        except urllib.error.HTTPError as exc:
+            exc.g3_action = "GET " + path
+            raise
 
     async def info(self):
         return await self._get("/api/v1/info")
@@ -58,21 +73,81 @@ class CommunityAdapter:
         return await self._get("/api/v1/status")
 
     async def capabilities(self):
-        data = await self._get("/api/v1/capabilities")
-        # GET /api/v1/capabilities is a plain map on v1.0.0; the
-        # capabilities.get command instead returns an envelope with data.actions.
-        # Accept both explicitly, without guessing from unrelated nested keys.
-        if "actions" in data:
-            actions = data["actions"]
-        elif isinstance(data.get("data"), dict):
-            actions = data["data"].get("actions")
-        else:
-            actions = None
+        # G3 firmware exposes capability discovery as the read-only
+        # capabilities.get command. Do not use GET /api/v1/capabilities:
+        # that route is not registered by the BRY88BBA15G HTTP server.
+        result = await self.call("capabilities.get", {})
+        data = result.get("data")
+        if not isinstance(data, dict):
+            raise ProtocolError("invalid capabilities response")
+        actions = data.get("actions")
         if not isinstance(actions, list) or not all(isinstance(x, str) and x for x in actions):
             raise ProtocolError("unsupported actions format")
         return frozenset(actions)
 
     async def call(self, action, params):
         request_id, body = encode_command(action, params)
-        result = await asyncio.to_thread(self._request, "/api/v1/command", body)
+        try:
+            result = await asyncio.to_thread(self._request, "/api/v1/command", body)
+        except urllib.error.HTTPError as exc:
+            exc.g3_action = action
+            raise
         return decode_result(result, request_id)
+
+    async def upload_jpeg(self, image_id, image):
+        # Keep the same credential/redirect policy as regular commands.
+        # The device streams this body in 512-byte blocks; no JPEG-sized
+        # allocation on ESP32. An uncertain failure is not retried here.
+        header = struct.pack("<IIIHH", image_id, len(image.data), image.crc32,
+                             image.width, image.height)
+        try:
+            result = decode_object(await asyncio.to_thread(
+                self._request, "/api/v1/screen/media/jpeg",
+                header + image.data, content_type="application/octet-stream",
+                timeout=max(self.timeout, 130)))
+        except urllib.error.HTTPError as exc:
+            exc.g3_action = "screen.media.jpeg"
+            raise
+        if not isinstance(result, dict) or result.get("code") != "ok":
+            raise ProtocolError("binary JPEG upload rejected")
+        data = result.get("data")
+        if not isinstance(data, dict):
+            raise ProtocolError("invalid binary JPEG receipt")
+        return data
+
+    async def upload_album_batches(self, image_id, image, epoch, batch_bytes):
+        if type(epoch) is not int or not 0 < epoch <= 0xffffffff:
+            raise ProtocolError("invalid album epoch")
+        if type(batch_bytes) is not int or not 512 <= batch_bytes <= 4096 or batch_bytes % 512:
+            raise ProtocolError("invalid binary batch limit")
+        for offset in range(0, len(image.data), batch_bytes):
+            chunk = image.data[offset:offset+batch_bytes]
+            end = offset + len(chunk)
+            header = struct.pack("<IIIHHII", image_id, len(image.data), image.crc32,
+                                 image.width, image.height, offset, epoch)
+            try:
+                reply = decode_object(await asyncio.to_thread(
+                    self._request, "/api/v1/screen/media/jpeg/batch",
+                    header+chunk, content_type="application/octet-stream",
+                    timeout=max(self.timeout, 45)))
+            except urllib.error.HTTPError as exc:
+                exc.g3_action = "screen.media.jpeg.batch"
+                try:
+                    code = json.loads(getattr(exc, "g3_body", "")).get("code")
+                except (ValueError, AttributeError):
+                    code = None
+                if code == "album_preempted":
+                    raise AlbumPreempted("album stopped by device") from exc
+                raise
+            receipt = reply.get("data")
+            expected = "ready" if end == len(image.data) else "receiving"
+            if (reply.get("code") != "ok" or not isinstance(receipt, dict) or
+                    (receipt.get("id"), receipt.get("total"), receipt.get("crc32"),
+                     receipt.get("offset"), receipt.get("album_epoch"),
+                     receipt.get("state")) !=
+                    (image_id, len(image.data), image.crc32, end, epoch, expected)):
+                raise ProtocolError("binary batch integrity mismatch")
+            # Each completed request releases the device HTTP server. Never
+            # replay an uncertain batch or switch to the old protocol.
+            await asyncio.sleep(0)
+        return receipt
