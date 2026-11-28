@@ -1,7 +1,7 @@
 import unittest
 from daikin_g3.native_album import NativeAlbum, NATIVE_REQUIRED
 from daikin_g3.album_player import select_album_session
-from daikin_g3.protocol import ProtocolError
+from daikin_g3.protocol import ProtocolError, AlbumPreempted
 from test_continuous_album import Media, photo
 
 
@@ -36,6 +36,27 @@ class NativeMedia(Media):
 
 
 class TestNative(unittest.IsolatedAsyncioTestCase):
+    async def test_ota_epoch_change_does_not_clear_new_album(self):
+        media=NativeMedia()
+        epoch=11
+        status=media.status
+        async def new_status():
+            result=await status()
+            result.update(album_epoch=epoch,binary_album_batch_bytes=4096)
+            return result
+        media.status=new_status
+        album=NativeAlbum(media)
+        await album.enter()
+        self.assertEqual(album.album_epoch,11)
+        album.current=123
+        epoch=12
+        media.image=456
+        with self.assertRaises(AlbumPreempted):
+            await album.check_ownership()
+        await album.close()
+        self.assertEqual(media.image,456)
+        self.assertEqual(media.cancelled,[])
+
     async def test_restart_on_sleeping_album_page_wakes_without_changing_saved_page(self):
         media = NativeMedia()
         media.page = 6

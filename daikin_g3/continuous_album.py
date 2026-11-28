@@ -21,7 +21,11 @@ class ContinuousAlbum:
             raise ProtocolError("album already has a prepared image")
         image = await asyncio.to_thread(prepare_image, source, fit="cover", max_bytes=65536)
         ident = secrets.randbelow(0x7fffffff) + 1
-        await self.media.upload(ident, image)
+        epoch = getattr(self, "album_epoch", None)
+        if epoch is None:
+            await self.media.upload(ident, image)
+        else:
+            await self.media.upload(ident, image, album_epoch=epoch)
         self.pending = (ident, image)
         return image
 

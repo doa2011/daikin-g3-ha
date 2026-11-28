@@ -1,7 +1,7 @@
 """Native page-six album; uploaded JPEG IDs remain MCU-owned until replaced."""
 import asyncio
 from .continuous_album import ContinuousAlbum
-from .protocol import ProtocolError
+from .protocol import ProtocolError, AlbumPreempted
 from .screen import Screen
 
 NATIVE_REQUIRED = {"screen.album.set", "screen.album.clear", "screen.page.get", "screen.page.set",
@@ -16,6 +16,30 @@ class NativeAlbum(ContinuousAlbum):
         self.screen = Screen(media.adapter)
         self.previous_page = None
         self.entered = False
+        self.album_epoch = None
+        self.preempted = False
+
+    def _check_epoch(self, state):
+        if state.get("ota_preparing") is True or (self.album_epoch is not None and
+                state.get("album_epoch") != self.album_epoch):
+            self.preempted = True
+            raise AlbumPreempted("album stopped by device")
+        if self.album_epoch is None and state.get("binary_album_batch_bytes"):
+            epoch = state.get("album_epoch")
+            if type(epoch) is not int or not 0 < epoch <= 0xffffffff:
+                raise ProtocolError("album epoch unavailable")
+            self.album_epoch = epoch
+
+    async def check_ownership(self):
+        self._check_epoch(await self.media.status())
+
+    async def prepare(self, source):
+        await self.check_ownership()
+        try:
+            return await super().prepare(source)
+        except AlbumPreempted:
+            self.preempted = True
+            raise
 
     async def enter(self, *, wake=True):
         """Select page six before the first potentially long JPEG upload."""
@@ -25,6 +49,7 @@ class NativeAlbum(ContinuousAlbum):
         while True:
             async with self.media.lock:
                 state = await self.media.status()
+                self._check_epoch(state)
                 if not state.get("active_id") and not state.get("queue") and not state.get("suspended"):
                     page = await self.screen.state()
                     if (page.get("available") is not True
@@ -62,6 +87,7 @@ class NativeAlbum(ContinuousAlbum):
         while True:
             async with self.media.lock:
                 state = await self.media.status()
+                self._check_epoch(state)
                 if (not state.get("active_id") and not state.get("queue")
                         and not state.get("suspended")):
                     page = await self.screen.state()
@@ -95,6 +121,18 @@ class NativeAlbum(ContinuousAlbum):
         return image.data
 
     async def close(self):
+        if self.album_epoch is not None and not self.preempted:
+            try:
+                await self.check_ownership()
+            except AlbumPreempted:
+                pass
+        if self.preempted:
+            # The device now owns cancellation and cleanup. Never send a
+            # stale clear/page request into a later album or OTA session.
+            self.pending = self.current = self.attempted = None
+            self.previous_page = None
+            self.entered = False
+            return
         # If set failed after submission its outcome may be uncertain. Clear
         # only IDs belonging to this session. Keep the old image pinned if
         # clear fails; never cancel an image that the MCU may still display.

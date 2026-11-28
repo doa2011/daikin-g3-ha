@@ -7,7 +7,7 @@ from daikin_g3.community import CommunityAdapter
 import msgpack
 from daikin_g3.images import PreparedImage
 from daikin_g3.media import Media
-from daikin_g3.protocol import ProtocolError
+from daikin_g3.protocol import ProtocolError, AlbumPreempted
 
 class Fake:
     def __init__(self):
@@ -117,3 +117,47 @@ class BinaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(struct.unpack("<IIIHH",args[1][:16]),(7,len(prepared.data),prepared.crc32,480,854))
         self.assertEqual(args[1][16:],prepared.data)
         self.assertEqual(kwargs["content_type"],"application/octet-stream")
+
+class BatchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_47732_bytes_use_twelve_bounded_requests(self):
+        a=CommunityAdapter("http://192.0.2.1")
+        raw=b"x"*47732
+        photo=PreparedImage(raw,480,854,zlib.crc32(raw)&0xffffffff)
+        calls=[]
+        def request(path,body,**kw):
+            ident,total,crc,w,h,at,epoch=struct.unpack("<IIIHHII",body[:24])
+            self.assertEqual((ident,total,crc,w,h,epoch),(7,len(raw),photo.crc32,480,854,99))
+            self.assertEqual(path,"/api/v1/screen/media/jpeg/batch")
+            self.assertEqual(body[24:],raw[at:at+4096])
+            self.assertLessEqual(len(body),4120)
+            calls.append(at)
+            end=at+len(body)-24
+            return msgpack.packb({"code":"ok","data":{"id":ident,"total":total,
+                "crc32":crc,"offset":end,"album_epoch":epoch,
+                "state":"ready" if end==total else "receiving"}},use_bin_type=True)
+        with patch.object(a,"_request",side_effect=request):
+            receipt=await a.upload_album_batches(7,photo,99,4096)
+        self.assertEqual(calls,list(range(0,len(raw),4096)))
+        self.assertEqual(len(calls),12)
+        self.assertEqual(receipt["state"],"ready")
+
+    async def test_stale_epoch_rejected_before_upload(self):
+        f=BinaryFake()
+        original=f.call
+        async def call(action,params):
+            reply=await original(action,params)
+            if action=="screen.media.get":
+                reply["data"].update(album_epoch=2,binary_album_batch_bytes=4096)
+            return reply
+        f.call=call
+        with self.assertRaises(AlbumPreempted):
+            await Media(f).upload(7,image(),album_epoch=1)
+        self.assertFalse(f.binary_calls)
+        self.assertFalse(f.calls)
+
+    async def test_batch_integrity_failure_not_replayed(self):
+        a=CommunityAdapter("http://192.0.2.1")
+        with patch.object(a,"_request",return_value=msgpack.packb({"code":"ok","data":{}},use_bin_type=True)) as req:
+            with self.assertRaisesRegex(ProtocolError,"integrity mismatch"):
+                await a.upload_album_batches(7,image(),99,512)
+        self.assertEqual(req.call_count,1)

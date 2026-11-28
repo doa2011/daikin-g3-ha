@@ -5,7 +5,7 @@ import urllib.error
 import json
 import struct
 from .auth import auth_headers
-from .protocol import encode_command, decode_object, decode_result, ProtocolError, CommandError
+from .protocol import encode_command, decode_object, decode_result, ProtocolError, CommandError, AlbumPreempted
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -114,3 +114,40 @@ class CommunityAdapter:
         if not isinstance(data, dict):
             raise ProtocolError("invalid binary JPEG receipt")
         return data
+
+    async def upload_album_batches(self, image_id, image, epoch, batch_bytes):
+        if type(epoch) is not int or not 0 < epoch <= 0xffffffff:
+            raise ProtocolError("invalid album epoch")
+        if type(batch_bytes) is not int or not 512 <= batch_bytes <= 4096 or batch_bytes % 512:
+            raise ProtocolError("invalid binary batch limit")
+        for offset in range(0, len(image.data), batch_bytes):
+            chunk = image.data[offset:offset+batch_bytes]
+            end = offset + len(chunk)
+            header = struct.pack("<IIIHHII", image_id, len(image.data), image.crc32,
+                                 image.width, image.height, offset, epoch)
+            try:
+                reply = decode_object(await asyncio.to_thread(
+                    self._request, "/api/v1/screen/media/jpeg/batch",
+                    header+chunk, content_type="application/octet-stream",
+                    timeout=max(self.timeout, 45)))
+            except urllib.error.HTTPError as exc:
+                exc.g3_action = "screen.media.jpeg.batch"
+                try:
+                    code = json.loads(getattr(exc, "g3_body", "")).get("code")
+                except (ValueError, AttributeError):
+                    code = None
+                if code == "album_preempted":
+                    raise AlbumPreempted("album stopped by device") from exc
+                raise
+            receipt = reply.get("data")
+            expected = "ready" if end == len(image.data) else "receiving"
+            if (reply.get("code") != "ok" or not isinstance(receipt, dict) or
+                    (receipt.get("id"), receipt.get("total"), receipt.get("crc32"),
+                     receipt.get("offset"), receipt.get("album_epoch"),
+                     receipt.get("state")) !=
+                    (image_id, len(image.data), image.crc32, end, epoch, expected)):
+                raise ProtocolError("binary batch integrity mismatch")
+            # Each completed request releases the device HTTP server. Never
+            # replay an uncertain batch or switch to the old protocol.
+            await asyncio.sleep(0)
+        return receipt

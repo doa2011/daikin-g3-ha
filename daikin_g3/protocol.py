@@ -4,6 +4,9 @@ import uuid
 class ProtocolError(Exception):
     pass
 
+class AlbumPreempted(ProtocolError):
+    """The device invalidated the album session for a higher-priority operation."""
+
 class CommandError(ProtocolError):
     def __init__(self, code):
         self.code = code

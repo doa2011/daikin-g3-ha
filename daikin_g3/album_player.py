@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 from .album import photos
 from .continuous_album import ContinuousAlbum, REQUIRED
 from .native_album import NativeAlbum, NATIVE_REQUIRED
-from .protocol import ProtocolError
+from .protocol import ProtocolError, AlbumPreempted
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -159,6 +159,9 @@ class AlbumPlayer:
                     index = (index + self._step) % len(paths)
         except asyncio.CancelledError:
             raise
+        except AlbumPreempted:
+            self.status = "stopped_for_ota"
+            _LOGGER.info("G3 album stopped by device media handoff")
         except Exception as exc:
             self.last_error = _error_summary(exc)
             self.status = "error"
@@ -176,7 +179,7 @@ class AlbumPlayer:
                     self.last_error = ((self.last_error + "; cleanup: ") if self.last_error else "cleanup: ") + detail
                     self.last_error = self.last_error[:200]
                     self.status = "error"
-            if self.status != "error":
+            if self.status not in ("error", "stopped_for_ota"):
                 self.status = "idle"
             self._task = None
             self.changed()
@@ -220,11 +223,14 @@ class AlbumPlayer:
                 return
             if not self._interrupt.is_set() and step == 1:
                 remaining = deadline - asyncio.get_running_loop().time()
-                if remaining > 0:
+                while remaining > 0 and not self._interrupt.is_set():
+                    watch = isinstance(session, NativeAlbum) and session.album_epoch is not None
                     try:
-                        await asyncio.wait_for(self._interrupt.wait(), remaining)
+                        await asyncio.wait_for(self._interrupt.wait(), min(remaining,2) if watch else remaining)
                     except asyncio.TimeoutError:
-                        pass
+                        if watch:
+                            await session.check_ownership()
+                    remaining = deadline - asyncio.get_running_loop().time()
             if self._stop:
                 return
             if self._interrupt.is_set() and self._step != step:

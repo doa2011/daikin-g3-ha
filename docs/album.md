@@ -65,3 +65,6 @@ CI 与宿主测试不等于实机 LCD 扫描确认。当前 MCU ACK 表示图像
 
 ### 实验性快速 JPEG 上传
 ESP32 的 screen.media.get 声明 binary_upload_supported=true 时，HA 自动选择一次 HTTP POST /api/v1/screen/media/jpeg（16字节元数据+JPEG），保留原有 MCU ACK/CRC 校验。旧 ESP32 继续使用512字节分块 Base64。已经尝试快速上传后失败，不自动回退以避免重放不确定的操作。原生相册页面、预加载及轮播方式保持不变。需实机测量首次显示、传输、串口错误及断流恢复；不默认调整波特率。
+
+### OTA 优先与可让出的原生相册批次
+设备提供 binary_album_batch_bytes 和 album_epoch 时，原生相册使用 24B <IIIHHII> + 最多4096B JPEG；每批独立确认 offset/CRC/generation/状态，47,732B照片12次数据请求，不再独占 HTTP server 直到整张完成。旧固件继续原二进制/逐块协议。OTA 准备改变 epoch，HA 停止旧播放，不再对新会话发送 clear 或切页；等待轮播时最多约2秒检查一次代际（设备不可达时仍可能收到普通通信错误）。设备端必须先完成 ACK 与缓存清理。高速 UART 由现有协商与回退控制，HA 不强制改速。待实机验证。

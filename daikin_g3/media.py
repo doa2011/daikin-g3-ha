@@ -2,7 +2,7 @@
 import asyncio
 import base64
 import zlib
-from .protocol import ProtocolError
+from .protocol import ProtocolError, AlbumPreempted
 
 class Media:
     def __init__(self, adapter):
@@ -33,7 +33,7 @@ class Media:
                 await asyncio.sleep(.05)
         return await asyncio.wait_for(poll(),8)
 
-    async def upload(self, image_id, image):
+    async def upload(self, image_id, image, *, album_epoch=None):
         if type(image_id) is not int or not 0<image_id<=0xffffffff:
             raise ValueError("invalid image ID")
         data=image.data
@@ -44,10 +44,18 @@ class Media:
             if not {"screen.media.get","screen.media.begin","screen.media.chunk","screen.media.commit"}<=actions:
                 raise ProtocolError("media upload unsupported")
             state=await self.status()
+            if state.get("ota_preparing") is True or (album_epoch is not None and
+                    state.get("album_epoch") != album_epoch):
+                raise AlbumPreempted("album stopped by device")
             if not state.get("available"):
                 raise ProtocolError("media unavailable")
             if any(x.get("id")==image_id for x in state.get("images",[])):
                 raise ProtocolError("image ID already exists")
+            if album_epoch is not None:
+                batch_bytes = state.get("binary_album_batch_bytes")
+                if not callable(getattr(self.adapter, "upload_album_batches", None)):
+                    raise ProtocolError("album batch transport unavailable")
+                return await self.adapter.upload_album_batches(image_id,image,album_epoch,batch_bytes)
             if state.get("binary_upload_supported") is True and callable(getattr(self.adapter, "upload_jpeg", None)):
                 entry = await self.adapter.upload_jpeg(image_id, image)
                 if (entry.get("id"), entry.get("state"), entry.get("total"),
